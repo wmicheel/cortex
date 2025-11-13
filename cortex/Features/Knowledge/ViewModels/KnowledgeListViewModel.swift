@@ -1,0 +1,292 @@
+//
+//  KnowledgeListViewModel.swift
+//  Cortex
+//
+//  Created by Claude Code
+//
+
+import Foundation
+import Observation
+
+/// ViewModel for knowledge list management
+@Observable
+@MainActor
+final class KnowledgeListViewModel {
+    // MARK: - Published State
+
+    /// List of knowledge entries
+    private(set) var entries: [KnowledgeEntry] = []
+
+    /// Search query
+    var searchText: String = "" {
+        didSet {
+            Task {
+                await performSearch()
+            }
+        }
+    }
+
+    /// Selected tag filter
+    var selectedTag: String? {
+        didSet {
+            Task {
+                await loadEntries()
+            }
+        }
+    }
+
+    /// Loading state
+    private(set) var isLoading = false
+
+    /// Error message
+    private(set) var errorMessage: String?
+
+    /// Available tags
+    private(set) var availableTags: [String] = []
+
+    /// Statistics
+    private(set) var statistics: KnowledgeStatistics?
+
+    // MARK: - Properties
+
+    /// Knowledge service
+    private let knowledgeService: KnowledgeService
+
+    /// Search task for cancellation
+    private var searchTask: Task<Void, Never>?
+
+    // MARK: - Initialization
+
+    init(knowledgeService: KnowledgeService = KnowledgeService()) {
+        self.knowledgeService = knowledgeService
+    }
+
+    // MARK: - Lifecycle
+
+    /// Load initial data
+    func onAppear() async {
+        await loadEntries()
+        await loadTags()
+        await loadStatistics()
+    }
+
+    /// Refresh all data
+    func refresh() async {
+        await loadEntries(forceRefresh: true)
+        await loadTags()
+        await loadStatistics()
+    }
+
+    // MARK: - Data Loading
+
+    /// Load knowledge entries
+    private func loadEntries(forceRefresh: Bool = false) async {
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            if let tag = selectedTag {
+                entries = try await knowledgeService.fetchEntries(withTag: tag)
+            } else {
+                entries = try await knowledgeService.fetchAll(forceRefresh: forceRefresh)
+            }
+        } catch {
+            errorMessage = handleError(error)
+        }
+
+        isLoading = false
+    }
+
+    /// Load available tags
+    private func loadTags() async {
+        do {
+            availableTags = try await knowledgeService.fetchAllTags()
+        } catch {
+            // Silently fail for tags - not critical
+            print("Failed to load tags: \(error)")
+        }
+    }
+
+    /// Load statistics
+    private func loadStatistics() async {
+        do {
+            statistics = try await knowledgeService.getStatistics()
+        } catch {
+            // Silently fail for statistics - not critical
+            print("Failed to load statistics: \(error)")
+        }
+    }
+
+    // MARK: - Search
+
+    /// Perform search
+    private func performSearch() async {
+        // Cancel previous search
+        searchTask?.cancel()
+
+        // Debounce search
+        searchTask = Task {
+            try? await Task.sleep(for: .milliseconds(300))
+
+            guard !Task.isCancelled else { return }
+
+            isLoading = true
+            errorMessage = nil
+
+            do {
+                entries = try await knowledgeService.search(query: searchText)
+            } catch {
+                errorMessage = handleError(error)
+            }
+
+            isLoading = false
+        }
+    }
+
+    // MARK: - CRUD Operations
+
+    /// Create new entry
+    func createEntry(title: String, content: String, tags: [String] = []) async {
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            let newEntry = try await knowledgeService.create(
+                title: title,
+                content: content,
+                tags: tags
+            )
+
+            // Add to local list
+            entries.insert(newEntry, at: 0)
+
+            // Reload tags if new ones were added
+            await loadTags()
+        } catch {
+            errorMessage = handleError(error)
+        }
+
+        isLoading = false
+    }
+
+    /// Update entry
+    func updateEntry(_ entry: KnowledgeEntry) async {
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            let updatedEntry = try await knowledgeService.update(entry)
+
+            // Update in local list
+            if let index = entries.firstIndex(where: { $0.id == updatedEntry.id }) {
+                entries[index] = updatedEntry
+            }
+
+            // Reload tags if they changed
+            await loadTags()
+        } catch {
+            errorMessage = handleError(error)
+        }
+
+        isLoading = false
+    }
+
+    /// Delete entry
+    func deleteEntry(_ entry: KnowledgeEntry) async {
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            try await knowledgeService.delete(entry)
+
+            // Remove from local list
+            entries.removeAll { $0.id == entry.id }
+
+            // Reload tags and statistics
+            await loadTags()
+            await loadStatistics()
+        } catch {
+            errorMessage = handleError(error)
+        }
+
+        isLoading = false
+    }
+
+    /// Delete multiple entries
+    func deleteEntries(_ entriesToDelete: [KnowledgeEntry]) async {
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            try await knowledgeService.deleteAll(entriesToDelete)
+
+            // Remove from local list
+            let deletedIds = Set(entriesToDelete.map { $0.id })
+            entries.removeAll { deletedIds.contains($0.id) }
+
+            // Reload tags and statistics
+            await loadTags()
+            await loadStatistics()
+        } catch {
+            errorMessage = handleError(error)
+        }
+
+        isLoading = false
+    }
+
+    // MARK: - Tag Management
+
+    /// Add tag to entry
+    func addTag(_ tag: String, to entry: KnowledgeEntry) async {
+        do {
+            let updatedEntry = try await knowledgeService.addTag(tag, to: entry.id)
+
+            // Update in local list
+            if let index = entries.firstIndex(where: { $0.id == updatedEntry.id }) {
+                entries[index] = updatedEntry
+            }
+
+            // Reload tags
+            await loadTags()
+        } catch {
+            errorMessage = handleError(error)
+        }
+    }
+
+    /// Remove tag from entry
+    func removeTag(_ tag: String, from entry: KnowledgeEntry) async {
+        do {
+            let updatedEntry = try await knowledgeService.removeTag(tag, from: entry.id)
+
+            // Update in local list
+            if let index = entries.firstIndex(where: { $0.id == updatedEntry.id }) {
+                entries[index] = updatedEntry
+            }
+
+            // Reload tags
+            await loadTags()
+        } catch {
+            errorMessage = handleError(error)
+        }
+    }
+
+    /// Clear tag filter
+    func clearTagFilter() {
+        selectedTag = nil
+    }
+
+    // MARK: - Error Handling
+
+    /// Handle and format error
+    private func handleError(_ error: Error) -> String {
+        if let cortexError = error as? CortexError {
+            return cortexError.localizedDescription
+        }
+        return error.localizedDescription
+    }
+
+    /// Clear error
+    func clearError() {
+        errorMessage = nil
+    }
+}
