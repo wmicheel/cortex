@@ -24,6 +24,9 @@ enum CortexError: LocalizedError {
     case decodingFailed
     case encodingFailed
 
+    // MARK: - Keychain Errors
+    case keychainError(message: String)
+
     // MARK: - General Errors
     case unknown(underlying: Error)
 
@@ -52,6 +55,8 @@ enum CortexError: LocalizedError {
             return "Failed to decode data."
         case .encodingFailed:
             return "Failed to encode data."
+        case .keychainError(let message):
+            return "Keychain error: \(message)"
         case .unknown(let error):
             return "An unknown error occurred: \(error.localizedDescription)"
         }
@@ -65,6 +70,8 @@ enum CortexError: LocalizedError {
             return "Please check your internet connection and try again."
         case .cloudKitRecordNotFound:
             return "The item may have been deleted. Please refresh the list."
+        case .keychainError:
+            return "Please try again. If the problem persists, restart the app."
         default:
             return "Please try again or contact support if the problem persists."
         }
