@@ -65,9 +65,8 @@ final class KnowledgeListViewModel {
     // MARK: - Initialization
 
     init(knowledgeService: (any KnowledgeServiceProtocol)? = nil) {
-        // Use Mock service by default for development
-        // Switch to real KnowledgeService when CloudKit is configured
-        self.knowledgeService = knowledgeService ?? MockKnowledgeService()
+        // Use real KnowledgeService (CloudKit-backed)
+        self.knowledgeService = knowledgeService ?? KnowledgeService()
     }
 
     // MARK: - Lifecycle
