@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import AppKit
 import Observation
 
 /// ViewModel for knowledge list management
@@ -51,6 +52,9 @@ final class KnowledgeListViewModel {
 
     /// Knowledge service
     private let knowledgeService: any KnowledgeServiceProtocol
+
+    /// Reminders service
+    private let remindersService = RemindersService()
 
     /// Search task for cancellation
     private var searchTask: Task<Void, Never>?
@@ -304,5 +308,87 @@ final class KnowledgeListViewModel {
     /// Clear error
     func clearError() {
         error = nil
+    }
+
+    // MARK: - Reminder Integration
+
+    /// Create a reminder from a knowledge entry
+    func createReminder(for entry: KnowledgeEntry, dueDate: Date, priority: Int) async {
+        do {
+            // Request access if needed
+            let hasAccess = await remindersService.hasAccess
+            if !hasAccess {
+                let granted = await remindersService.requestAccess()
+                guard granted else {
+                    error = .unknown(underlying: RemindersError.notAuthorized)
+                    return
+                }
+            }
+
+            // Create reminder
+            let reminderID = try await remindersService.createReminder(
+                title: entry.title,
+                notes: entry.content,
+                dueDate: dueDate,
+                priority: priority
+            )
+
+            // Update entry with linked reminder ID
+            var updatedEntry = entry
+            updatedEntry.linkReminder(reminderID)
+            try await knowledgeService.update(updatedEntry)
+
+            // Update in local list
+            if let index = entries.firstIndex(where: { $0.id == entry.id }) {
+                entries[index] = updatedEntry
+            }
+        } catch {
+            self.error = handleError(error)
+        }
+    }
+
+    /// Open a reminder in the Reminders app
+    func openReminder(id: String) async {
+        guard let url = await remindersService.getReminderURL(id: id) else {
+            error = .unknown(underlying: RemindersError.notFound)
+            return
+        }
+
+        await MainActor.run {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    /// Unlink a reminder from an entry
+    func unlinkReminder(from entry: KnowledgeEntry) async {
+        guard let reminderID = entry.linkedReminderID else { return }
+
+        do {
+            // Delete the reminder from Reminders app
+            try await remindersService.deleteReminder(id: reminderID)
+
+            // Update entry to unlink
+            var updatedEntry = entry
+            updatedEntry.unlinkReminder()
+            try await knowledgeService.update(updatedEntry)
+
+            // Update in local list
+            if let index = entries.firstIndex(where: { $0.id == entry.id }) {
+                entries[index] = updatedEntry
+            }
+        } catch {
+            // If reminder doesn't exist anymore, just unlink it
+            if (error as? RemindersError) == .notFound {
+                var updatedEntry = entry
+                updatedEntry.unlinkReminder()
+                try? await knowledgeService.update(updatedEntry)
+
+                if let index = entries.firstIndex(where: { $0.id == entry.id }) {
+                    entries[index] = updatedEntry
+                }
+            } else {
+                self.error = handleError(error)
+            }
+        }
     }
 }

@@ -30,6 +30,12 @@ struct KnowledgeEntry: CloudKitRecord, Identifiable, Sendable {
     /// Last modification timestamp
     var modifiedAt: Date
 
+    /// Linked Apple Reminders identifier
+    var linkedReminderID: String?
+
+    /// Linked Apple Calendar event identifier
+    var linkedCalendarEventID: String?
+
     // MARK: - CloudKit Configuration
 
     nonisolated static let recordType = "KnowledgeEntry"
@@ -43,7 +49,9 @@ struct KnowledgeEntry: CloudKitRecord, Identifiable, Sendable {
         content: String,
         tags: [String] = [],
         createdAt: Date = Date(),
-        modifiedAt: Date = Date()
+        modifiedAt: Date = Date(),
+        linkedReminderID: String? = nil,
+        linkedCalendarEventID: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -51,6 +59,8 @@ struct KnowledgeEntry: CloudKitRecord, Identifiable, Sendable {
         self.tags = tags
         self.createdAt = createdAt
         self.modifiedAt = modifiedAt
+        self.linkedReminderID = linkedReminderID
+        self.linkedCalendarEventID = linkedCalendarEventID
     }
 
     // MARK: - CloudKitRecord Conformance
@@ -65,6 +75,8 @@ struct KnowledgeEntry: CloudKitRecord, Identifiable, Sendable {
         record["tags"] = tags as CKRecordValue
         record["createdAt"] = createdAt as CKRecordValue
         record["modifiedAt"] = modifiedAt as CKRecordValue
+        record["linkedReminderID"] = linkedReminderID as CKRecordValue?
+        record["linkedCalendarEventID"] = linkedCalendarEventID as CKRecordValue?
 
         return record
     }
@@ -86,6 +98,8 @@ struct KnowledgeEntry: CloudKitRecord, Identifiable, Sendable {
         self.tags = record["tags"] as? [String] ?? []
         self.createdAt = createdAt
         self.modifiedAt = modifiedAt
+        self.linkedReminderID = record["linkedReminderID"] as? String
+        self.linkedCalendarEventID = record["linkedCalendarEventID"] as? String
     }
 }
 
@@ -137,5 +151,39 @@ extension KnowledgeEntry {
         return title.lowercased().contains(lowercasedQuery) ||
                content.lowercased().contains(lowercasedQuery) ||
                tags.contains { $0.lowercased().contains(lowercasedQuery) }
+    }
+
+    /// Link a reminder to this entry
+    nonisolated mutating func linkReminder(_ reminderID: String) {
+        self.linkedReminderID = reminderID
+        touch()
+    }
+
+    /// Unlink the reminder from this entry
+    nonisolated mutating func unlinkReminder() {
+        self.linkedReminderID = nil
+        touch()
+    }
+
+    /// Check if entry has a linked reminder
+    nonisolated var hasLinkedReminder: Bool {
+        linkedReminderID != nil
+    }
+
+    /// Link a calendar event to this entry
+    nonisolated mutating func linkCalendarEvent(_ eventID: String) {
+        self.linkedCalendarEventID = eventID
+        touch()
+    }
+
+    /// Unlink the calendar event from this entry
+    nonisolated mutating func unlinkCalendarEvent() {
+        self.linkedCalendarEventID = nil
+        touch()
+    }
+
+    /// Check if entry has a linked calendar event
+    nonisolated var hasLinkedCalendarEvent: Bool {
+        linkedCalendarEventID != nil
     }
 }

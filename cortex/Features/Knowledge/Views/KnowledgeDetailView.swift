@@ -18,6 +18,10 @@ struct KnowledgeDetailView: View {
     @State private var editedTitle: String
     @State private var editedContent: String
     @State private var editedTags: [String]
+    @State private var showReminderSheet = false
+    @State private var reminderDueDate = Date()
+    @State private var reminderPriority = 0
+    @State private var isCreatingReminder = false
 
     // MARK: - Initialization
 
@@ -46,6 +50,11 @@ struct KnowledgeDetailView: View {
                 // Content
                 contentSection
 
+                // Apple Integrations
+                if !isEditing {
+                    appleIntegrationsSection
+                }
+
                 // Metadata
                 metadataSection
             }
@@ -56,6 +65,15 @@ struct KnowledgeDetailView: View {
         .navigationSubtitle(entry.tags.isEmpty ? "" : entry.tags.map { "#\($0)" }.joined(separator: " "))
         .toolbar {
             toolbarContent
+        }
+        .sheet(isPresented: $showReminderSheet) {
+            CreateReminderSheet(
+                entry: entry,
+                dueDate: $reminderDueDate,
+                priority: $reminderPriority,
+                isCreating: $isCreatingReminder,
+                onSave: createReminder
+            )
         }
     }
 
@@ -129,6 +147,49 @@ struct KnowledgeDetailView: View {
                 MarkdownView(markdown: entry.content)
                     .font(.body)
             }
+        }
+    }
+
+    // MARK: - Apple Integrations Section
+
+    private var appleIntegrationsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Divider()
+
+            Text("Apple Integrations")
+                .font(.headline)
+
+            // Reminder Integration
+            HStack {
+                Label("Reminder", systemImage: "checklist")
+                    .font(.body)
+
+                Spacer()
+
+                if entry.hasLinkedReminder {
+                    Button(action: openReminder) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            Text("Open")
+                        }
+                    }
+                    .buttonStyle(.borderless)
+
+                    Button(role: .destructive, action: unlinkReminder) {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.borderless)
+                } else {
+                    Button(action: {
+                        showReminderSheet = true
+                    }) {
+                        Label("Create", systemImage: "plus.circle.fill")
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+            .padding(.vertical, 4)
         }
     }
 
@@ -241,6 +302,107 @@ struct KnowledgeDetailView: View {
         Task {
             await viewModel.deleteEntry(entry)
         }
+    }
+
+    // MARK: - Reminder Actions
+
+    private func createReminder() {
+        isCreatingReminder = true
+
+        Task {
+            await viewModel.createReminder(
+                for: entry,
+                dueDate: reminderDueDate,
+                priority: reminderPriority
+            )
+            isCreatingReminder = false
+            showReminderSheet = false
+        }
+    }
+
+    private func openReminder() {
+        guard let reminderID = entry.linkedReminderID else { return }
+
+        Task {
+            await viewModel.openReminder(id: reminderID)
+        }
+    }
+
+    private func unlinkReminder() {
+        Task {
+            await viewModel.unlinkReminder(from: entry)
+        }
+    }
+}
+
+// MARK: - Create Reminder Sheet
+
+struct CreateReminderSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let entry: KnowledgeEntry
+    @Binding var dueDate: Date
+    @Binding var priority: Int
+    @Binding var isCreating: Bool
+    let onSave: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Reminder Details") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Title")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(entry.title)
+                            .font(.body)
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Notes")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(entry.content)
+                            .font(.body)
+                            .lineLimit(3)
+                    }
+                }
+
+                Section("Due Date") {
+                    DatePicker("Date & Time", selection: $dueDate, displayedComponents: [.date, .hourAndMinute])
+                }
+
+                Section("Priority") {
+                    Picker("Priority", selection: $priority) {
+                        Text("None").tag(0)
+                        Text("Low").tag(9)
+                        Text("Medium").tag(5)
+                        Text("High").tag(1)
+                    }
+                    .pickerStyle(.segmented)
+                }
+            }
+            .formStyle(.grouped)
+            .navigationTitle("Create Reminder")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .disabled(isCreating)
+                }
+
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create") {
+                        onSave()
+                    }
+                    .disabled(isCreating)
+                }
+            }
+            .disabled(isCreating)
+            .loadingOverlay(isLoading: isCreating, message: "Creating reminder...")
+        }
+        .frame(width: 500, height: 450)
     }
 }
 
