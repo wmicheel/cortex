@@ -21,7 +21,15 @@ final class KnowledgeEntry {
     var title: String
 
     /// Entry content (markdown supported)
+    /// @deprecated Use blocks for new entries
     var content: String
+
+    /// Block-based content (new format)
+    @Relationship(deleteRule: .cascade)
+    var blocks: [ContentBlock]?
+
+    /// Is this entry using the block-based format?
+    var isBlockBased: Bool
 
     /// Tags for categorization
     var tags: [String]
@@ -38,6 +46,20 @@ final class KnowledgeEntry {
     /// Linked Apple Calendar event identifier
     var linkedCalendarEventID: String?
 
+    // MARK: - AI Processing
+
+    /// AI-generated tags
+    var aiGeneratedTags: [String]?
+
+    /// AI-generated summary
+    var aiSummary: String?
+
+    /// IDs of related/similar entries found by AI
+    var aiRelatedEntryIDs: [String]?
+
+    /// Timestamp when AI last processed this entry
+    var aiLastProcessed: Date?
+
     // MARK: - Initialization
 
     /// Initialize a new knowledge entry
@@ -45,20 +67,32 @@ final class KnowledgeEntry {
         id: String = UUID().uuidString,
         title: String,
         content: String,
+        blocks: [ContentBlock]? = nil,
+        isBlockBased: Bool = false,
         tags: [String] = [],
         createdAt: Date = Date(),
         modifiedAt: Date = Date(),
         linkedReminderID: String? = nil,
-        linkedCalendarEventID: String? = nil
+        linkedCalendarEventID: String? = nil,
+        aiGeneratedTags: [String]? = nil,
+        aiSummary: String? = nil,
+        aiRelatedEntryIDs: [String]? = nil,
+        aiLastProcessed: Date? = nil
     ) {
         self.id = id
         self.title = title
         self.content = content
+        self.blocks = blocks
+        self.isBlockBased = isBlockBased
         self.tags = tags
         self.createdAt = createdAt
         self.modifiedAt = modifiedAt
         self.linkedReminderID = linkedReminderID
         self.linkedCalendarEventID = linkedCalendarEventID
+        self.aiGeneratedTags = aiGeneratedTags
+        self.aiSummary = aiSummary
+        self.aiRelatedEntryIDs = aiRelatedEntryIDs
+        self.aiLastProcessed = aiLastProcessed
     }
 }
 
@@ -79,6 +113,10 @@ extension KnowledgeEntry: CloudKitRecord {
         record["modifiedAt"] = modifiedAt as CKRecordValue
         record["linkedReminderID"] = linkedReminderID as CKRecordValue?
         record["linkedCalendarEventID"] = linkedCalendarEventID as CKRecordValue?
+        record["aiGeneratedTags"] = aiGeneratedTags as CKRecordValue?
+        record["aiSummary"] = aiSummary as CKRecordValue?
+        record["aiRelatedEntryIDs"] = aiRelatedEntryIDs as CKRecordValue?
+        record["aiLastProcessed"] = aiLastProcessed as CKRecordValue?
 
         return record
     }
@@ -102,7 +140,11 @@ extension KnowledgeEntry: CloudKitRecord {
             createdAt: createdAt,
             modifiedAt: modifiedAt,
             linkedReminderID: record["linkedReminderID"] as? String,
-            linkedCalendarEventID: record["linkedCalendarEventID"] as? String
+            linkedCalendarEventID: record["linkedCalendarEventID"] as? String,
+            aiGeneratedTags: record["aiGeneratedTags"] as? [String],
+            aiSummary: record["aiSummary"] as? String,
+            aiRelatedEntryIDs: record["aiRelatedEntryIDs"] as? [String],
+            aiLastProcessed: record["aiLastProcessed"] as? Date
         )
     }
 }
@@ -173,5 +215,114 @@ extension KnowledgeEntry {
     /// Check if entry has a linked calendar event
     var hasLinkedCalendarEvent: Bool {
         linkedCalendarEventID != nil
+    }
+
+    // MARK: - AI Processing Helpers
+
+    /// Check if entry has been processed by AI
+    var hasAIProcessing: Bool {
+        aiLastProcessed != nil
+    }
+
+    /// Check if entry has AI-generated tags
+    var hasAITags: Bool {
+        aiGeneratedTags?.isEmpty == false
+    }
+
+    /// Check if entry has AI-generated summary
+    var hasAISummary: Bool {
+        aiSummary?.isEmpty == false
+    }
+
+    /// Check if entry has AI-found related entries
+    var hasAIRelations: Bool {
+        aiRelatedEntryIDs?.isEmpty == false
+    }
+
+    /// Update AI processing results
+    func updateAIResults(
+        tags: [String]? = nil,
+        summary: String? = nil,
+        relatedIDs: [String]? = nil
+    ) {
+        if let tags = tags {
+            self.aiGeneratedTags = tags
+        }
+        if let summary = summary {
+            self.aiSummary = summary
+        }
+        if let relatedIDs = relatedIDs {
+            self.aiRelatedEntryIDs = relatedIDs
+        }
+        self.aiLastProcessed = Date()
+        touch()
+    }
+
+    /// Clear all AI-generated data
+    func clearAIResults() {
+        self.aiGeneratedTags = nil
+        self.aiSummary = nil
+        self.aiRelatedEntryIDs = nil
+        self.aiLastProcessed = nil
+        touch()
+    }
+
+    /// Merge AI-generated tags with manual tags
+    func mergeAITags() {
+        guard let aiTags = aiGeneratedTags, !aiTags.isEmpty else { return }
+        let uniqueTags = Set(tags + aiTags)
+        tags = Array(uniqueTags).sorted()
+        touch()
+    }
+
+    // MARK: - Block Management Helpers
+
+    /// Get content as text (from blocks or legacy content field)
+    func getContentText() -> String {
+        if isBlockBased, let blocks = blocks, !blocks.isEmpty {
+            return blocks
+                .sorted { $0.order < $1.order }
+                .map { $0.toMarkdown() }
+                .joined(separator: "\n")
+        }
+        return content
+    }
+
+    /// Convert to block-based format
+    func convertToBlocks() {
+        guard !isBlockBased else { return }
+
+        // Will be implemented by BlockMigrationService
+        isBlockBased = true
+        touch()
+    }
+
+    /// Add a new block
+    func addBlock(_ block: ContentBlock) {
+        if blocks == nil {
+            blocks = []
+        }
+        blocks?.append(block)
+        touch()
+    }
+
+    /// Remove a block
+    func removeBlock(_ block: ContentBlock) {
+        blocks?.removeAll { $0.id == block.id }
+        touch()
+    }
+
+    /// Get sorted blocks
+    func getSortedBlocks() -> [ContentBlock] {
+        blocks?.sorted { $0.order < $1.order } ?? []
+    }
+
+    /// Reorder blocks
+    func reorderBlocks(_ orderedBlocks: [ContentBlock]) {
+        for (index, block) in orderedBlocks.enumerated() {
+            block.order = index
+        }
+        blocks = orderedBlocks
+        touch()
     }
 }

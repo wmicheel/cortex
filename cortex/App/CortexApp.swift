@@ -6,13 +6,18 @@
 //
 
 import SwiftUI
+import SwiftData
 
 @main
 struct CortexApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .onAppear {
+                    performMigrationIfNeeded()
+                }
         }
+        .modelContainer(for: [KnowledgeEntry.self, ContentBlock.self])
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unified)
         .defaultSize(width: 1200, height: 800)
@@ -37,5 +42,11 @@ struct CortexApp: App {
                 .keyboardShortcut("f", modifiers: .command)
             }
         }
+    }
+
+    // MARK: - Migration
+
+    private func performMigrationIfNeeded() {
+        // Migration will be triggered from ContentView where we have access to modelContext
     }
 }

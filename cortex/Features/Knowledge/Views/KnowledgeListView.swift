@@ -12,8 +12,12 @@ struct KnowledgeListView: View {
     // MARK: - Properties
 
     @State private var viewModel = KnowledgeListViewModel()
+    @State private var aiViewModel: AIProcessingViewModel?
     @State private var showingAddSheet = false
+    @State private var showingAISheet = false
     @State private var selectedEntry: KnowledgeEntry?
+    @State private var selectionMode = false
+    @State private var selectedEntries: Set<KnowledgeEntry.ID> = []
 
     // MARK: - Body
 
@@ -38,6 +42,21 @@ struct KnowledgeListView: View {
             .sheet(isPresented: $showingAddSheet) {
                 AddKnowledgeView(viewModel: viewModel)
             }
+            .sheet(isPresented: $showingAISheet) {
+                if let aiViewModel = aiViewModel {
+                    AIProcessingSheet(
+                        aiViewModel: aiViewModel,
+                        selectedEntries: selectedEntriesArray,
+                        onComplete: {
+                            selectionMode = false
+                            selectedEntries.removeAll()
+                            Task {
+                                await viewModel.refresh()
+                            }
+                        }
+                    )
+                }
+            }
             .errorAlert(error: $viewModel.error, onRetry: {
                 Task {
                     await viewModel.refresh()
@@ -48,6 +67,8 @@ struct KnowledgeListView: View {
         }
         .task {
             await viewModel.onAppear()
+            // Initialize AI ViewModel - uses default MockKnowledgeService
+            aiViewModel = AIProcessingViewModel()
         }
     }
 
@@ -146,15 +167,44 @@ struct KnowledgeListView: View {
     private var entryList: some View {
         List(selection: $selectedEntry) {
             ForEach(viewModel.entries) { entry in
-                KnowledgeEntryRow(entry: entry)
-                    .tag(entry)
-                    .contextMenu {
-                        Button("Delete", role: .destructive) {
-                            Task {
-                                await viewModel.deleteEntry(entry)
+                if selectionMode {
+                    // Multi-selection mode
+                    HStack(spacing: 12) {
+                        Button(action: {
+                            toggleSelection(entry.id)
+                        }) {
+                            Image(systemName: selectedEntries.contains(entry.id) ? "checkmark.circle.fill" : "circle")
+                                .foregroundColor(selectedEntries.contains(entry.id) ? .accentColor : .secondary)
+                                .font(.title3)
+                        }
+                        .buttonStyle(.plain)
+
+                        KnowledgeEntryRow(entry: entry)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        toggleSelection(entry.id)
+                    }
+                } else {
+                    // Normal selection mode
+                    KnowledgeEntryRow(entry: entry)
+                        .tag(entry)
+                        .contentShape(Rectangle())
+                        .contextMenu {
+                            Button("Mit AI verarbeiten") {
+                                selectedEntries = [entry.id]
+                                showingAISheet = true
+                            }
+
+                            Divider()
+
+                            Button("Delete", role: .destructive) {
+                                Task {
+                                    await viewModel.deleteEntry(entry)
+                                }
                             }
                         }
-                    }
+                }
             }
         }
         .listStyle(.sidebar)
@@ -236,22 +286,66 @@ struct KnowledgeListView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
-            Button(action: {
-                showingAddSheet = true
-            }) {
-                Label("Add Entry", systemImage: "plus")
+            if selectionMode {
+                Button(action: {
+                    selectionMode = false
+                    selectedEntries.removeAll()
+                }) {
+                    Label("Cancel", systemImage: "xmark")
+                }
+            } else {
+                Button(action: {
+                    showingAddSheet = true
+                }) {
+                    Label("Add Entry", systemImage: "plus")
+                }
             }
         }
 
         ToolbarItem(placement: .automatic) {
-            Button(action: {
-                Task {
-                    await viewModel.refresh()
+            if selectionMode {
+                Button(action: {
+                    showingAISheet = true
+                }) {
+                    Label("Mit AI verarbeiten (\(selectedEntries.count))", systemImage: "sparkles")
                 }
-            }) {
-                Label("Refresh", systemImage: "arrow.clockwise")
+                .disabled(selectedEntries.isEmpty)
+            } else {
+                Menu {
+                    Button(action: {
+                        selectionMode = true
+                    }) {
+                        Label("Batch AI-Verarbeitung", systemImage: "sparkles")
+                    }
+
+                    Divider()
+
+                    Button(action: {
+                        Task {
+                            await viewModel.refresh()
+                        }
+                    }) {
+                        Label("Refresh", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(viewModel.isLoading)
+                } label: {
+                    Label("More", systemImage: "ellipsis.circle")
+                }
             }
-            .disabled(viewModel.isLoading)
+        }
+    }
+
+    // MARK: - Helper Methods
+
+    private var selectedEntriesArray: [KnowledgeEntry] {
+        viewModel.entries.filter { selectedEntries.contains($0.id) }
+    }
+
+    private func toggleSelection(_ id: KnowledgeEntry.ID) {
+        if selectedEntries.contains(id) {
+            selectedEntries.remove(id)
+        } else {
+            selectedEntries.insert(id)
         }
     }
 }
@@ -260,38 +354,76 @@ struct KnowledgeListView: View {
 
 struct KnowledgeEntryRow: View {
     let entry: KnowledgeEntry
+    @State private var isHovered = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(entry.title)
-                .font(.headline)
-                .lineLimit(1)
+        HStack(spacing: 12) {
+            // Block type indicator
+            ZStack {
+                Circle()
+                    .fill(entry.isBlockBased ? Color.accentColor.opacity(0.15) : Color(nsColor: .controlBackgroundColor))
+                    .frame(width: 32, height: 32)
 
-            Text(entry.content)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .lineLimit(2)
-
-            if !entry.tags.isEmpty {
-                HStack(spacing: 4) {
-                    ForEach(entry.tags.prefix(3), id: \.self) { tag in
-                        Text("#\(tag)")
-                            .font(.caption)
-                            .foregroundColor(.accentColor)
-                    }
-                    if entry.tags.count > 3 {
-                        Text("+\(entry.tags.count - 3)")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
+                Image(systemName: entry.isBlockBased ? "square.grid.2x2" : "text.alignleft")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(entry.isBlockBased ? .accentColor : .secondary)
             }
 
-            Text(entry.modifiedAt.formatted(date: .abbreviated, time: .shortened))
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+            VStack(alignment: .leading, spacing: 6) {
+                // Title
+                Text(entry.title)
+                    .font(.system(.headline, design: .rounded, weight: .semibold))
+                    .lineLimit(1)
+
+                // Preview
+                Text(entry.content)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+
+                // Tags and metadata
+                HStack(spacing: 8) {
+                    if !entry.tags.isEmpty {
+                        HStack(spacing: 4) {
+                            ForEach(entry.tags.prefix(3), id: \.self) { tag in
+                                Text("#\(tag)")
+                                    .font(.caption)
+                                    .foregroundColor(.accentColor)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(
+                                        Capsule()
+                                            .fill(Color.accentColor.opacity(0.1))
+                                    )
+                            }
+                            if entry.tags.count > 3 {
+                                Text("+\(entry.tags.count - 3)")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+
+                    Spacer()
+
+                    // Timestamp
+                    Text(entry.modifiedAt.formatted(date: .abbreviated, time: .shortened))
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 8)
+        .padding(.horizontal, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(isHovered ? Color(nsColor: .controlBackgroundColor).opacity(0.5) : Color.clear)
+        )
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovered = hovering
+            }
+        }
     }
 }
 

@@ -27,6 +27,9 @@ struct KnowledgeDetailView: View {
     @State private var eventEndDate = Date().addingTimeInterval(3600) // 1 hour later
     @State private var eventIsAllDay = false
     @State private var isCreatingEvent = false
+    @State private var aiViewModel: AIProcessingViewModel?
+    @State private var showingAISheet = false
+    @State private var useBlockEditor = false
 
     // MARK: - Initialization
 
@@ -37,6 +40,7 @@ struct KnowledgeDetailView: View {
         _editedTitle = State(initialValue: entry.title)
         _editedContent = State(initialValue: entry.content)
         _editedTags = State(initialValue: entry.tags)
+        _useBlockEditor = State(initialValue: entry.isBlockBased)
     }
 
     // MARK: - Body
@@ -54,6 +58,11 @@ struct KnowledgeDetailView: View {
 
                 // Content
                 contentSection
+
+                // AI Results
+                if !isEditing && entry.hasAIProcessing {
+                    aiResultsSection
+                }
 
                 // Apple Integrations
                 if !isEditing {
@@ -89,6 +98,23 @@ struct KnowledgeDetailView: View {
                 isCreating: $isCreatingEvent,
                 onSave: createCalendarEvent
             )
+        }
+        .sheet(isPresented: $showingAISheet) {
+            if let aiViewModel = aiViewModel {
+                AIProcessingSheet(
+                    aiViewModel: aiViewModel,
+                    selectedEntries: [entry],
+                    onComplete: {
+                        Task {
+                            await viewModel.refresh()
+                        }
+                    }
+                )
+            }
+        }
+        .task {
+            // Initialize AI ViewModel - uses default MockKnowledgeService
+            aiViewModel = AIProcessingViewModel()
         }
     }
 
@@ -145,20 +171,162 @@ struct KnowledgeDetailView: View {
         }
     }
 
+    // MARK: - AI Results Section
+
+    private var aiResultsSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Divider()
+
+            HStack {
+                Label("AI-Analyse", systemImage: "sparkles")
+                    .font(.headline)
+
+                Spacer()
+
+                Button(action: {
+                    showingAISheet = true
+                }) {
+                    Label("Erneut ausführen", systemImage: "arrow.clockwise")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)
+            }
+
+            // AI-Generated Tags
+            if let aiTags = entry.aiGeneratedTags, !aiTags.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Label("AI Tags", systemImage: "tag.fill")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+
+                        Spacer()
+
+                        Button("Tags übernehmen") {
+                            mergeAITags()
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                    }
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(aiTags, id: \.self) { tag in
+                                Text("#\(tag)")
+                                    .font(.caption)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 4)
+                                    .background(Color.purple.opacity(0.2))
+                                    .foregroundColor(.purple)
+                                    .cornerRadius(12)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // AI Summary
+            if let aiSummary = entry.aiSummary, !aiSummary.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Zusammenfassung", systemImage: "doc.text.fill")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+
+                    Text(aiSummary)
+                        .font(.body)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.accentColor.opacity(0.1))
+                        .cornerRadius(8)
+                }
+            }
+
+            // Related Entries
+            if let relatedIDs = entry.aiRelatedEntryIDs, !relatedIDs.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Ähnliche Einträge", systemImage: "link")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+
+                    ForEach(relatedIDs.prefix(3), id: \.self) { relatedID in
+                        if let relatedEntry = viewModel.entries.first(where: { $0.id == relatedID }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "arrow.turn.down.right")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(relatedEntry.title)
+                                        .font(.subheadline)
+                                        .fontWeight(.medium)
+
+                                    Text(relatedEntry.content)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                }
+
+                                Spacer()
+                            }
+                            .padding(8)
+                            .background(Color(nsColor: .controlBackgroundColor))
+                            .cornerRadius(6)
+                        }
+                    }
+                }
+            }
+
+            // Processing timestamp
+            if let processedAt = entry.aiLastProcessed {
+                HStack {
+                    Image(systemName: "clock")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    Text("Zuletzt verarbeitet: \(processedAt.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+    }
+
     // MARK: - Content Section
 
     private var contentSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Content")
-                .font(.caption)
-                .foregroundColor(.secondary)
+            HStack {
+                Text("Content")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
 
-            if isEditing {
+                Spacer()
+
+                if isEditing {
+                    Toggle(isOn: $useBlockEditor) {
+                        Label(useBlockEditor ? "Block-Editor" : "Markdown",
+                              systemImage: useBlockEditor ? "square.grid.2x2" : "text.alignleft")
+                            .font(.caption)
+                    }
+                    .toggleStyle(.button)
+                }
+            }
+
+            if isEditing && useBlockEditor {
+                // Block-based editor
+                BlockEditorView(entry: entry)
+                    .frame(minHeight: 300)
+            } else if isEditing {
+                // Markdown editor
                 TextEditor(text: $editedContent)
                     .frame(minHeight: 300)
                     .font(.body)
                     .border(Color.secondary.opacity(0.2))
+            } else if entry.isBlockBased {
+                // Display block-based content
+                BlockEditorView(entry: entry)
+                    .disabled(true)
             } else {
+                // Display markdown content
                 MarkdownView(markdown: entry.content)
                     .font(.body)
             }
@@ -331,6 +499,7 @@ struct KnowledgeDetailView: View {
         updatedEntry.title = editedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         updatedEntry.content = editedContent.trimmingCharacters(in: .whitespacesAndNewlines)
         updatedEntry.tags = editedTags
+        updatedEntry.isBlockBased = useBlockEditor
 
         Task {
             await viewModel.updateEntry(updatedEntry)
@@ -342,6 +511,7 @@ struct KnowledgeDetailView: View {
         editedTitle = entry.title
         editedContent = entry.content
         editedTags = entry.tags
+        useBlockEditor = entry.isBlockBased
         isEditing = false
     }
 
@@ -409,6 +579,17 @@ struct KnowledgeDetailView: View {
     private func unlinkCalendarEvent() {
         Task {
             await viewModel.unlinkCalendarEvent(from: entry)
+        }
+    }
+
+    // MARK: - AI Actions
+
+    private func mergeAITags() {
+        var updatedEntry = entry
+        updatedEntry.mergeAITags()
+
+        Task {
+            await viewModel.updateEntry(updatedEntry)
         }
     }
 }

@@ -24,6 +24,7 @@ struct AddKnowledgeView: View {
     @State private var suggestedTags: [String] = []
     @State private var suggestionTask: Task<Void, Never>?
     @State private var showVoiceInput = false
+    @State private var useBlockEditor = false
 
     // MARK: - Body
 
@@ -36,7 +37,25 @@ struct AddKnowledgeView: View {
                 }
 
                 Section {
-                    if showMarkdownPreview {
+                    if useBlockEditor {
+                        VStack(spacing: 12) {
+                            Image(systemName: "square.grid.2x2")
+                                .font(.system(size: 48))
+                                .foregroundColor(.secondary)
+
+                            Text("Block-Editor wird nach dem Erstellen verfügbar")
+                                .font(.headline)
+                                .foregroundColor(.primary)
+
+                            Text("Gib einen Titel ein und klicke auf \"Save\". Danach kannst du den Eintrag bearbeiten und Blocks hinzufügen.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 200)
+                    } else if showMarkdownPreview {
                         ScrollView {
                             MarkdownView(markdown: content.isEmpty ? "*Preview will appear here*" : content)
                                 .frame(minHeight: 200, alignment: .topLeading)
@@ -53,6 +72,14 @@ struct AddKnowledgeView: View {
                         Text("Content")
                         Spacer()
 
+                        // Block Editor Toggle
+                        Toggle(isOn: $useBlockEditor) {
+                            Label(useBlockEditor ? "Blocks" : "Markdown",
+                                  systemImage: useBlockEditor ? "square.grid.2x2" : "text.alignleft")
+                        }
+                        .toggleStyle(.button)
+                        .disabled(showMarkdownPreview)
+
                         // Voice Input Button
                         Button(action: {
                             showVoiceInput = true
@@ -61,12 +88,14 @@ struct AddKnowledgeView: View {
                         }
                         .buttonStyle(.plain)
                         .foregroundColor(.accentColor)
+                        .disabled(useBlockEditor)
 
                         Button(showMarkdownPreview ? "Edit" : "Preview") {
                             showMarkdownPreview.toggle()
                         }
                         .buttonStyle(.plain)
                         .foregroundColor(.accentColor)
+                        .disabled(useBlockEditor)
                     }
                 }
 
@@ -222,8 +251,15 @@ struct AddKnowledgeView: View {
     // MARK: - Computed Properties
 
     private var isValid: Bool {
-        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasTitle = !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        // For block-based entries, we don't need content (will be added as blocks)
+        if useBlockEditor {
+            return hasTitle
+        }
+
+        // For markdown entries, we need both title and content
+        return hasTitle && !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     // MARK: - Actions
@@ -247,11 +283,17 @@ struct AddKnowledgeView: View {
         isSaving = true
 
         Task {
+            // For block-based entries, use placeholder content if empty
+            let entryContent = useBlockEditor && content.isEmpty
+                ? "New block-based entry"
+                : content.trimmingCharacters(in: .whitespacesAndNewlines)
+
             await viewModel.createEntry(
                 title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-                content: content.trimmingCharacters(in: .whitespacesAndNewlines),
+                content: entryContent,
                 tags: tags,
-                autoTag: isAutoTagEnabled
+                autoTag: isAutoTagEnabled,
+                isBlockBased: useBlockEditor
             )
 
             isSaving = false

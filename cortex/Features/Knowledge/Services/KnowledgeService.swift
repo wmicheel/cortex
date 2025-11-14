@@ -19,6 +19,9 @@ final class KnowledgeService: KnowledgeServiceProtocol {
     /// Tag extraction service for auto-tagging
     private let tagExtractor: TagExtractionService
 
+    /// AI coordinator service for AI-powered processing
+    private let aiCoordinator: AICoordinatorService
+
     /// In-memory cache for faster access
     private var cache: [String: KnowledgeEntry] = [:]
 
@@ -30,9 +33,14 @@ final class KnowledgeService: KnowledgeServiceProtocol {
 
     // MARK: - Initialization
 
-    init(cloudKitService: CloudKitService = CloudKitService(), tagExtractor: TagExtractionService = TagExtractionService()) {
+    init(
+        cloudKitService: CloudKitService = CloudKitService(),
+        tagExtractor: TagExtractionService = TagExtractionService(),
+        aiCoordinator: AICoordinatorService = AICoordinatorService()
+    ) {
         self.cloudKitService = cloudKitService
         self.tagExtractor = tagExtractor
+        self.aiCoordinator = aiCoordinator
     }
 
     // MARK: - Cache Management
@@ -247,6 +255,69 @@ final class KnowledgeService: KnowledgeServiceProtocol {
             .sorted { $0.value > $1.value }
             .prefix(limit)
             .map { (tag: $0.key, count: $0.value) }
+    }
+
+    // MARK: - AI Processing
+
+    /// Process a single entry with AI tasks
+    func processWithAI(_ entry: KnowledgeEntry, tasks: [AITask]) async throws -> KnowledgeEntry {
+        // Get all entries for similarity search
+        let allEntries = try await fetchAll(forceRefresh: false)
+
+        // Process with AI
+        let result = try await aiCoordinator.processEntry(entry, tasks: tasks, allEntries: allEntries)
+
+        // Update entry with AI results
+        entry.updateAIResults(
+            tags: result.tags,
+            summary: result.summary,
+            relatedIDs: result.relatedEntryIDs
+        )
+
+        // Save updated entry
+        let savedEntry = try await cloudKitService.update(entry)
+
+        // Update cache
+        updateCache(with: savedEntry)
+
+        return savedEntry
+    }
+
+    /// Process multiple entries with AI tasks (batch processing)
+    func processBatchWithAI(
+        _ entries: [KnowledgeEntry],
+        tasks: [AITask],
+        progressCallback: @Sendable @escaping (Int, Int) -> Void
+    ) async throws -> AIBatchProcessingResult {
+        // Process batch
+        let batchResult = try await aiCoordinator.processBatch(
+            entries,
+            tasks: tasks,
+            progressCallback: progressCallback
+        )
+
+        // Update entries with AI results
+        for entry in entries {
+            if let result = batchResult.results[entry.id], !result.hasErrors {
+                entry.updateAIResults(
+                    tags: result.tags,
+                    summary: result.summary,
+                    relatedIDs: result.relatedEntryIDs
+                )
+
+                // Save updated entry in background
+                Task {
+                    do {
+                        let saved = try await cloudKitService.update(entry)
+                        updateCache(with: saved)
+                    } catch {
+                        print("⚠️ Failed to save AI results for entry \(entry.id): \(error)")
+                    }
+                }
+            }
+        }
+
+        return batchResult
     }
 }
 

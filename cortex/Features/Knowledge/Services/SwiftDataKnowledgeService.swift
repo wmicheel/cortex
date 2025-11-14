@@ -254,4 +254,30 @@ final class SwiftDataKnowledgeService: KnowledgeServiceProtocol {
     func suggestTags(title: String, content: String) async -> [String] {
         return await tagExtractor.suggestTags(title: title, content: content)
     }
+
+    // MARK: - AI Processing
+
+    func processWithAI(_ entry: KnowledgeEntry, tasks: [AITask]) async throws -> KnowledgeEntry {
+        // TODO: Implement AI processing for SwiftData service
+        // For now, return entry unchanged
+        return entry
+    }
+
+    func processBatchWithAI(
+        _ entries: [KnowledgeEntry],
+        tasks: [AITask],
+        progressCallback: @Sendable @escaping (Int, Int) -> Void
+    ) async throws -> AIBatchProcessingResult {
+        // TODO: Implement batch AI processing for SwiftData service
+        // For now, return empty result
+        return AIBatchProcessingResult(
+            totalEntries: entries.count,
+            successfulEntries: 0,
+            failedEntries: 0,
+            results: [:],
+            duration: 0.0,
+            startedAt: Date(),
+            completedAt: Date()
+        )
+    }
 }

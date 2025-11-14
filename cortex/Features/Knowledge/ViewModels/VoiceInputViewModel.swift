@@ -20,22 +20,37 @@ final class VoiceInputViewModel {
     private(set) var partialTranscript = ""
     private(set) var error: SpeechRecognitionError?
     private(set) var authorizationStatus: SFSpeechRecognizerAuthorizationStatus = .notDetermined
+    private(set) var availableDevices: [AudioDevice] = []
+    var selectedDevice: AudioDevice? = nil
 
     // MARK: - Properties
 
-    private let speechService: SpeechRecognitionService
+    private var speechService: SpeechRecognitionService?
 
     // MARK: - Initialization
 
-    init(speechService: SpeechRecognitionService = SpeechRecognitionService()) {
-        self.speechService = speechService
+    init() {
+        // Service created lazily
+        print("🎤 VoiceInputViewModel: init() called")
+    }
+
+    /// Get or create speech service
+    private func getService() -> SpeechRecognitionService {
+        if let service = speechService {
+            return service
+        }
+        print("🎤 VoiceInputViewModel: Creating SpeechRecognitionService")
+        let service = SpeechRecognitionService()
+        speechService = service
+        print("🎤 VoiceInputViewModel: SpeechRecognitionService created")
+        return service
     }
 
     // MARK: - Authorization
 
     /// Request microphone and speech recognition permissions
     func requestPermissions() async {
-        let status = await speechService.requestAuthorization()
+        let status = await getService().requestAuthorization()
         authorizationStatus = status
     }
 
@@ -44,21 +59,49 @@ final class VoiceInputViewModel {
         authorizationStatus == .authorized
     }
 
+    /// Load available audio input devices
+    func loadAvailableDevices() {
+        print("🎤 VoiceInputViewModel: Loading available audio devices")
+        availableDevices = getService().getAvailableInputDevices()
+        print("🎤 VoiceInputViewModel: Found \(availableDevices.count) devices")
+
+        // Select first device by default if none selected
+        if selectedDevice == nil, let firstDevice = availableDevices.first {
+            selectedDevice = firstDevice
+            print("🎤 VoiceInputViewModel: Auto-selected device: \(firstDevice.name)")
+        }
+    }
+
+    /// Change the selected audio input device
+    func selectDevice(_ device: AudioDevice) {
+        print("🎤 VoiceInputViewModel: Selecting device: \(device.name)")
+        selectedDevice = device
+        getService().setInputDevice(device)
+    }
+
     // MARK: - Recording
 
     /// Start voice recording and transcription
     func startRecording() async {
-        guard !isRecording else { return }
+        print("🎤 VoiceInputViewModel: startRecording() called")
+        guard !isRecording else {
+            print("🎤 VoiceInputViewModel: Already recording, returning")
+            return
+        }
 
         // Request permissions if needed
         if authorizationStatus == .notDetermined {
+            print("🎤 VoiceInputViewModel: Requesting permissions")
             await requestPermissions()
         }
 
         guard hasPermissions else {
+            print("🎤 VoiceInputViewModel: No permissions, setting error")
             error = .notAuthorized
             return
         }
+
+        print("🎤 VoiceInputViewModel: Permissions granted, starting recording")
 
         // Reset state
         transcribedText = ""
@@ -67,27 +110,31 @@ final class VoiceInputViewModel {
         isRecording = true
 
         do {
-            try await speechService.startRecording { [weak self] partial in
-                Task { @MainActor in
-                    self?.partialTranscript = partial
-                }
+            print("🎤 VoiceInputViewModel: Calling speechService.startRecording()")
+            try await getService().startRecording { [weak self] partial in
+                guard let self = self else { return }
+                print("🎤 VoiceInputViewModel: Partial transcript: \(partial)")
+                self.partialTranscript = partial
             }
+            print("🎤 VoiceInputViewModel: Recording started successfully")
         } catch let speechError as SpeechRecognitionError {
+            print("🎤 VoiceInputViewModel: SpeechRecognitionError: \(speechError)")
             error = speechError
             isRecording = false
         } catch {
+            print("🎤 VoiceInputViewModel: Generic error: \(error)")
             self.error = .recordingFailed(error)
             isRecording = false
         }
     }
 
     /// Stop recording and get final transcription
-    func stopRecording() async -> String {
+    func stopRecording() -> String {
         guard isRecording else { return transcribedText }
 
         isRecording = false
 
-        let finalText = await speechService.stopRecording()
+        let finalText = getService().stopRecording()
         transcribedText = finalText
         partialTranscript = ""
 
@@ -95,11 +142,11 @@ final class VoiceInputViewModel {
     }
 
     /// Cancel recording without saving
-    func cancelRecording() async {
+    func cancelRecording() {
         guard isRecording else { return }
 
         isRecording = false
-        _ = await speechService.stopRecording()
+        _ = getService().stopRecording()
 
         transcribedText = ""
         partialTranscript = ""

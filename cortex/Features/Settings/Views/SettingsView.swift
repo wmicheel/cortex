@@ -13,8 +13,13 @@ struct SettingsView: View {
 
     @State private var context7APIKey: String = ""
     @State private var hasContext7Key: Bool = false
+    @State private var openAIAPIKey: String = ""
+    @State private var hasOpenAIKey: Bool = false
     @State private var showingSaveSuccess: Bool = false
+    @State private var saveSuccessMessage: String = ""
     @State private var errorMessage: String?
+    @State private var aiConfig = AIConfiguration.shared
+    @State private var showingClaudeLogin = false
 
     // MARK: - Body
 
@@ -31,6 +36,175 @@ struct SettingsView: View {
                     Text("Phase 2 - Core Features")
                         .foregroundColor(.secondary)
                 }
+            }
+
+            // AI Integration Section
+            Section {
+                NavigationLink(destination: AIConfigurationView()) {
+                    Label("AI-Konfiguration", systemImage: "gearshape.2.fill")
+                }
+
+                Divider()
+                    .padding(.vertical, 4)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("OpenAI API Key")
+                        .font(.headline)
+
+                    if hasOpenAIKey {
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            Text("API key configured")
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Button("Remove") {
+                                removeOpenAIKey()
+                            }
+                            .foregroundColor(.red)
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: 8) {
+                            SecureField("Enter OpenAI API Key (sk-...)", text: $openAIAPIKey)
+                                .textFieldStyle(.roundedBorder)
+
+                            Button("Save API Key") {
+                                saveOpenAIKey()
+                            }
+                            .disabled(openAIAPIKey.isEmpty)
+                        }
+                    }
+
+                    Text("OpenAI powers AI features like auto-tagging, summarization, and link finding. Uses GPT-4o-mini for cost-effective processing.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Divider()
+                        .padding(.vertical, 4)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Apple Intelligence")
+                            .font(.headline)
+
+                        HStack {
+                            Image(systemName: "apple.logo")
+                                .foregroundColor(.secondary)
+                            Text("ChatGPT via System Integration")
+                            Spacer()
+                            Text("Verfügbar")
+                                .foregroundColor(.green)
+                                .font(.caption)
+                        }
+
+                        Text("Nutzt den im System integrierten ChatGPT-Zugang (ChatGPT Business). Automatischer Fallback zu OpenAI API falls nicht verfügbar.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Divider()
+                        .padding(.vertical, 4)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Claude")
+                            .font(.headline)
+
+                        HStack {
+                            Image(systemName: "sparkles")
+                                .foregroundColor(aiConfig.claudeAvailable ? .green : .secondary)
+                            Text("Claude.ai")
+                            Spacer()
+                            Text(aiConfig.claudeService.loginStatus)
+                                .foregroundColor(aiConfig.claudeAvailable ? .green : .secondary)
+                                .font(.caption)
+                        }
+
+                        if !aiConfig.claudeAvailable {
+                            Button("Bei Claude.ai anmelden") {
+                                aiConfig.claudeService.ensureWebViewLoaded()
+                                showingClaudeLogin = true
+                            }
+                            .buttonStyle(.bordered)
+
+                            Text("Klicke auf 'Anmelden' um ein Fenster mit Claude.ai zu öffnen. Melde dich dort an, dann kannst du erweiterte AI-Features nutzen.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Button("Claude Status prüfen") {
+                            Task {
+                                await aiConfig.refreshClaudeStatus()
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+
+                        Text("Claude wird für komplexe Analysen verwendet. Automatischer Fallback zu OpenAI falls nicht verfügbar.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Divider()
+                        .padding(.vertical, 4)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Service-Auswahl")
+                            .font(.headline)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Image(systemName: "tag.fill")
+                                    .frame(width: 24)
+                                    .foregroundColor(.secondary)
+                                Text("Auto-Tagging:")
+                                Spacer()
+                                Text(aiConfig.autoTaggingService.displayName)
+                                    .foregroundColor(.secondary)
+                                    .font(.caption)
+                            }
+
+                            HStack {
+                                Image(systemName: "doc.text.fill")
+                                    .frame(width: 24)
+                                    .foregroundColor(.secondary)
+                                Text("Zusammenfassung:")
+                                Spacer()
+                                Text(aiConfig.summarizationService.displayName)
+                                    .foregroundColor(.secondary)
+                                    .font(.caption)
+                            }
+
+                            HStack {
+                                Image(systemName: "link")
+                                    .frame(width: 24)
+                                    .foregroundColor(.secondary)
+                                Text("Link-Finding:")
+                                Spacer()
+                                Text(aiConfig.linkFindingService.displayName)
+                                    .foregroundColor(.secondary)
+                                    .font(.caption)
+                            }
+
+                            HStack {
+                                Image(systemName: "text.append")
+                                    .frame(width: 24)
+                                    .foregroundColor(.secondary)
+                                Text("Content-Erweiterung:")
+                                Spacer()
+                                Text(aiConfig.contentEnrichmentService.displayName)
+                                    .foregroundColor(.secondary)
+                                    .font(.caption)
+                            }
+                        }
+                        .font(.subheadline)
+
+                        Text("Services werden automatisch je nach Aufgabe ausgewählt. Ändere die Zuordnung in der AI-Konfiguration.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .padding(.top, 4)
+                    }
+                }
+            } header: {
+                Label("AI Integration", systemImage: "sparkles")
             }
 
             // Context7 Section
@@ -130,12 +304,12 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .navigationTitle("Settings")
         .task {
-            await checkContext7Key()
+            await checkAPIKeys()
         }
         .alert("Success", isPresented: $showingSaveSuccess) {
             Button("OK") { }
         } message: {
-            Text("Context7 API key saved successfully")
+            Text(saveSuccessMessage)
         }
         .alert("Error", isPresented: .constant(errorMessage != nil)) {
             Button("OK") {
@@ -146,15 +320,47 @@ struct SettingsView: View {
                 Text(error)
             }
         }
+        .sheet(isPresented: $showingClaudeLogin) {
+            ClaudeLoginView()
+        }
     }
 
     // MARK: - Actions
 
-    private func checkContext7Key() async {
+    private func checkAPIKeys() async {
         do {
             hasContext7Key = try await KeychainManager.shared.hasContext7APIKey()
+            hasOpenAIKey = try await KeychainManager.shared.get(key: "openAIAPIKey") != nil
+
+            // Update AI service status
+            await aiConfig.updateServiceStatus()
         } catch {
-            print("Error checking Context7 key: \(error)")
+            print("Error checking API keys: \(error)")
+        }
+    }
+
+    private func saveOpenAIKey() {
+        Task {
+            do {
+                try await KeychainManager.shared.save(key: "openAIAPIKey", value: openAIAPIKey)
+                hasOpenAIKey = true
+                openAIAPIKey = ""
+                saveSuccessMessage = "OpenAI API key saved successfully"
+                showingSaveSuccess = true
+            } catch {
+                errorMessage = "Failed to save OpenAI API key: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func removeOpenAIKey() {
+        Task {
+            do {
+                try await KeychainManager.shared.delete(key: "openAIAPIKey")
+                hasOpenAIKey = false
+            } catch {
+                errorMessage = "Failed to remove OpenAI API key: \(error.localizedDescription)"
+            }
         }
     }
 
@@ -164,9 +370,10 @@ struct SettingsView: View {
                 try await KeychainManager.shared.saveContext7APIKey(context7APIKey)
                 hasContext7Key = true
                 context7APIKey = ""
+                saveSuccessMessage = "Context7 API key saved successfully"
                 showingSaveSuccess = true
             } catch {
-                errorMessage = "Failed to save API key: \(error.localizedDescription)"
+                errorMessage = "Failed to save Context7 API key: \(error.localizedDescription)"
             }
         }
     }
@@ -177,7 +384,7 @@ struct SettingsView: View {
                 try await KeychainManager.shared.deleteContext7APIKey()
                 hasContext7Key = false
             } catch {
-                errorMessage = "Failed to remove API key: \(error.localizedDescription)"
+                errorMessage = "Failed to remove Context7 API key: \(error.localizedDescription)"
             }
         }
     }

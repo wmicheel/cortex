@@ -39,4 +39,9 @@ protocol KnowledgeServiceProtocol {
     // MARK: - Statistics
 
     func getStatistics() async throws -> KnowledgeStatistics
+
+    // MARK: - AI Processing
+
+    func processWithAI(_ entry: KnowledgeEntry, tasks: [AITask]) async throws -> KnowledgeEntry
+    func processBatchWithAI(_ entries: [KnowledgeEntry], tasks: [AITask], progressCallback: @Sendable @escaping (Int, Int) -> Void) async throws -> AIBatchProcessingResult
 }

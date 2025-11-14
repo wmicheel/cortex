@@ -12,14 +12,28 @@ struct VoiceInputView: View {
     // MARK: - Properties
 
     @Environment(\.dismiss) private var dismiss
-    @State private var viewModel = VoiceInputViewModel()
+    @State private var viewModel: VoiceInputViewModel
     let onTranscriptionComplete: (String) -> Void
+
+    // MARK: - Initialization
+
+    init(onTranscriptionComplete: @escaping (String) -> Void) {
+        print("📱 VoiceInputView: init() START")
+        self.onTranscriptionComplete = onTranscriptionComplete
+        _viewModel = State(initialValue: VoiceInputViewModel())
+        print("📱 VoiceInputView: init() COMPLETE")
+    }
 
     // MARK: - Body
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 32) {
+                // Microphone Selection
+                if !viewModel.isRecording {
+                    microphoneSelector
+                }
+
                 // Waveform Animation
                 if viewModel.isRecording {
                     waveformAnimation
@@ -36,28 +50,66 @@ struct VoiceInputView: View {
                 controlButtons
             }
             .padding(32)
-            .frame(width: 500, height: 400)
+            .frame(width: 500, height: viewModel.isRecording ? 400 : 460)
             .background(Color(nsColor: .windowBackgroundColor))
             .navigationTitle("Voice Input")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") {
-                        Task {
-                            await viewModel.cancelRecording()
-                            dismiss()
-                        }
+                        viewModel.cancelRecording()
+                        dismiss()
                     }
                 }
             }
             .task {
-                // Request permissions on appear
+                // Request permissions and load devices on appear
                 await viewModel.requestPermissions()
+                viewModel.loadAvailableDevices()
             }
             .errorAlert(error: Binding(
                 get: { viewModel.error.map { CortexError.unknown(underlying: $0) } },
                 set: { _ in viewModel.clearError() }
             ))
         }
+    }
+
+    // MARK: - Microphone Selector
+
+    private var microphoneSelector: some View {
+        HStack {
+            Image(systemName: "mic.fill")
+                .foregroundStyle(.secondary)
+
+            Menu {
+                ForEach(viewModel.availableDevices) { device in
+                    Button(action: {
+                        viewModel.selectDevice(device)
+                    }) {
+                        HStack {
+                            Text(device.name)
+                            if viewModel.selectedDevice?.id == device.id {
+                                Spacer()
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                HStack {
+                    Text(viewModel.selectedDevice?.name ?? "Mikrofon auswählen")
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(8)
     }
 
     // MARK: - Microphone Icon
@@ -149,12 +201,10 @@ struct VoiceInputView: View {
             if viewModel.isRecording {
                 // Stop button
                 Button(action: {
-                    Task {
-                        let text = await viewModel.stopRecording()
-                        if !text.isEmpty {
-                            onTranscriptionComplete(text)
-                            dismiss()
-                        }
+                    let text = viewModel.stopRecording()
+                    if !text.isEmpty {
+                        onTranscriptionComplete(text)
+                        dismiss()
                     }
                 }) {
                     Label("Stopp", systemImage: "stop.circle.fill")
@@ -166,9 +216,7 @@ struct VoiceInputView: View {
 
                 // Cancel button
                 Button(action: {
-                    Task {
-                        await viewModel.cancelRecording()
-                    }
+                    viewModel.cancelRecording()
                 }) {
                     Text("Abbrechen")
                 }

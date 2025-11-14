@@ -22,20 +22,34 @@ Cortex is a personal Second Brain application deeply integrated into the Apple e
 Cortex/
 ├── App/
 │   ├── CortexApp.swift           # App entry point
+│   ├── ContentView.swift         # Main navigation & migration
 │   └── AppDelegate.swift         # System integration
 ├── Core/
 │   ├── Models/                   # Data models
 │   │   ├── KnowledgeEntry.swift  # @Model class (SwiftData)
-│   │   ├── CloudKitRecord.swift  # Protocol for future CloudKit migration
 │   │   └── Context7Models.swift
-│   ├── ViewModels/               # MVVM ViewModels
 │   ├── Services/                 # Business logic
-│   │   ├── CloudKitService.swift # For future CloudKit migration
 │   │   ├── Context7Service.swift
 │   │   └── KeychainManager.swift
 │   └── Utilities/
 │       └── CortexError.swift
 ├── Features/
+│   ├── BlockEditor/              # 🆕 Notion-like block editor
+│   │   ├── Models/
+│   │   │   ├── BlockType.swift
+│   │   │   ├── ContentBlock.swift       # @Model for blocks
+│   │   │   └── BlockFormatting.swift
+│   │   ├── Views/
+│   │   │   ├── BlockEditorView.swift    # Main editor
+│   │   │   └── Components/
+│   │   │       ├── SlashMenuView.swift  # "/" menu for block types
+│   │   │       ├── FormattingToolbar.swift
+│   │   │       └── MigrationProgressView.swift
+│   │   ├── ViewModels/
+│   │   │   └── BlockEditorViewModel.swift
+│   │   └── Services/
+│   │       ├── MarkdownParser.swift     # Markdown ↔ Blocks
+│   │       └── BlockMigrationService.swift
 │   ├── Dashboard/                # Main dashboard
 │   │   ├── Views/
 │   │   ├── ViewModels/
@@ -43,43 +57,31 @@ Cortex/
 │   ├── Knowledge/                # Knowledge management
 │   │   ├── Views/
 │   │   │   ├── KnowledgeListView.swift
-│   │   │   ├── KnowledgeDetailView.swift
-│   │   │   ├── AddKnowledgeView.swift
+│   │   │   ├── KnowledgeDetailView.swift  # Supports block editor
+│   │   │   ├── AddKnowledgeView.swift     # Toggle block/markdown
 │   │   │   └── Components/
 │   │   ├── ViewModels/
 │   │   │   ├── KnowledgeListViewModel.swift
 │   │   │   └── KnowledgeDetailViewModel.swift
 │   │   └── Services/
 │   │       ├── KnowledgeServiceProtocol.swift
-│   │       ├── SwiftDataKnowledgeService.swift  # Current implementation
-│   │       ├── KnowledgeService.swift           # CloudKit (for future)
-│   │       └── MockKnowledgeService.swift       # Testing
+│   │       ├── SwiftDataKnowledgeService.swift
+│   │       └── MockKnowledgeService.swift
 │   ├── AIIntegration/            # Claude/ChatGPT integration
 │   │   ├── Views/
-│   │   │   ├── ClaudeWebView.swift
-│   │   │   └── ChatGPTIntentView.swift
 │   │   ├── ViewModels/
 │   │   └── Services/
-│   │       ├── ClaudeWebService.swift
-│   │       └── ChatGPTIntentService.swift
 │   ├── Siri/                     # Siri Intents
 │   │   ├── Intents/
-│   │   │   ├── AddKnowledgeIntent.swift
-│   │   │   ├── SearchKnowledgeIntent.swift
-│   │   │   └── AskAIIntent.swift
 │   │   └── Shortcuts/
 │   └── Settings/                 # App settings
 │       ├── Views/
-│       │   ├── SettingsView.swift
-│       │   └── Context7SetupView.swift
 │       └── ViewModels/
 ├── Resources/
 │   ├── Assets.xcassets
 │   └── Localizations/
 └── Tests/
     ├── CortexTests/
-    │   ├── Services/
-    │   └── ViewModels/
     └── CortexUITests/
 ```
 
@@ -566,6 +568,127 @@ DEBUG_MODE=true
 - Context7 API key stored in Keychain
 - Retrieved at runtime via KeychainManager
 
+## Block Editor - Notion-Like Editing
+
+### Overview
+The block editor provides a Notion-like editing experience with full Notion parity. All knowledge entries can be created in either Markdown or Block mode.
+
+### Features Implemented ✅
+
+**Block Types:**
+- Text (Paragraph)
+- Heading 1, 2, 3, 4, 5, 6
+- Bulleted List
+- Numbered List
+- Checkbox List (with completion state)
+- Code Block (with language selection)
+- Quote
+- Divider
+- Callout (with customizable icon)
+
+**Slash Menu (/):**
+- Type `/` to open block type menu
+- Search by name, description, or keywords
+- Keyboard navigation (↑↓ arrows, Enter)
+- Visual selection indicator
+- Smooth animations and transitions
+
+**Markdown Auto-Formatting:**
+- `# ` → Heading 1
+- `## ` → Heading 2
+- `### ` → Heading 3
+- `- ` or `* ` → Bulleted List
+- `1. ` → Numbered List
+- `> ` → Quote
+- ` ``` ` → Code Block
+- `[ ] ` → Checkbox (unchecked)
+- `[x] ` → Checkbox (checked)
+- `---` or `***` → Divider
+
+**Keyboard Shortcuts:**
+- `Cmd+B` → Bold
+- `Cmd+I` → Italic
+- `Cmd+E` → Inline Code
+- `Cmd+K` → Link
+- `Cmd+Shift+X` → Strikethrough
+
+**Drag & Drop:**
+- Click and drag block icon to reorder
+- Smooth animations during drag
+- Auto-save new order
+- Undo/Redo support
+
+**Block Operations:**
+- Convert block type via menu
+- Indent/Outdent (up to 6 levels)
+- Delete blocks
+- Add blocks with Enter key
+- Focus management
+
+**UI/UX Polish:**
+- Smooth spring animations for all interactions
+- Hover effects on blocks and controls
+- Focus indicators with accent color
+- Visual feedback for all actions
+- Modern, rounded design language
+- Proper spacing and typography
+
+### Architecture
+
+**Models:**
+- `ContentBlock` (@Model) - SwiftData model for blocks
+- `BlockType` (enum) - All available block types
+- `BlockFormatting` - Inline formatting state
+
+**Services:**
+- `MarkdownParser` - Bidirectional Markdown ↔ Blocks conversion
+- `BlockMigrationService` - Automatic migration of old Markdown entries
+
+**ViewModels:**
+- `BlockEditorViewModel` - Manages blocks, focus, undo/redo
+
+**Views:**
+- `BlockEditorView` - Main editor container
+- `SlashMenuView` - Slash menu for block selection
+- `FormattingToolbar` - Inline formatting controls
+
+### Migration Strategy
+
+**Automatic Migration:**
+- Runs on first app launch
+- Converts legacy Markdown entries to blocks
+- Non-destructive (preserves original content)
+- Shows progress UI for bulk operations
+
+**Toggle Support:**
+- Users can toggle between Markdown and Block mode
+- Seamless conversion in both directions
+- Content preserved during conversion
+
+### Usage
+
+**Creating Block-Based Entry:**
+1. Click "+" to create new entry
+2. Toggle to "Blocks" mode
+3. Enter title
+4. Click "Save"
+5. Edit entry to add blocks
+
+**Editing with Blocks:**
+1. Select entry in Knowledge list
+2. Click "Edit"
+3. Toggle to "Blocks" if not already
+4. Use slash menu `/` or Markdown shortcuts
+5. Drag blocks to reorder
+6. Click "Save" when done
+
+**Converting Markdown to Blocks:**
+1. Open Markdown entry
+2. Click "Edit"
+3. Toggle to "Block-Editor"
+4. Content is automatically converted
+5. Edit as needed
+
 ## Dependencies (Swift Package Manager)
 
 ### Current
@@ -651,7 +774,29 @@ DEBUG_MODE=true
 - [x] Unit tests for models
 - [x] App builds and runs successfully
 
-### Phase 2: Core Features (Current - In Progress)
+### Phase 2: Block Editor ✅ (COMPLETED)
+- [x] **Notion-like block editor implementation**
+- [x] ContentBlock @Model with SwiftData
+- [x] BlockEditorView with full editing capabilities
+- [x] BlockEditorViewModel with undo/redo
+- [x] Block types: Text, Headings, Lists, Code, Quote, Divider, Callout
+- [x] **Slash Menu (/)** for block type selection
+- [x] **Markdown auto-formatting** (# → H1, - → List, etc.)
+- [x] **Keyboard shortcuts** (Cmd+B, Cmd+I, Cmd+E, Cmd+K)
+- [x] **Drag & Drop** block reordering
+- [x] Indent/Outdent support (6 levels)
+- [x] MarkdownParser for bidirectional conversion
+- [x] BlockMigrationService for automatic migration
+- [x] Toggle between Markdown and Block mode
+- [x] **UI/UX Polish:**
+  - [x] Smooth spring animations
+  - [x] Hover effects on all interactive elements
+  - [x] Focus indicators with accent colors
+  - [x] Modern rounded design language
+  - [x] Proper spacing and typography
+  - [x] Visual feedback for all actions
+
+### Phase 3: Core Features (Current - In Progress)
 - [x] SwiftData persistence working
 - [x] Knowledge CRUD operations
 - [x] Search functionality (local text search)
@@ -659,10 +804,8 @@ DEBUG_MODE=true
 - [x] Apple Reminders integration
 - [x] Apple Calendar integration
 - [ ] Dashboard UI skeleton
-- [ ] Polish UI/UX
-- [ ] Add keyboard shortcuts
-- [ ] Implement proper error alerts in UI
 - [ ] Add data export/import
+- [ ] Implement proper error alerts in UI
 
 ### Phase 3: Context7 Integration
 - [ ] Context7Service implementation

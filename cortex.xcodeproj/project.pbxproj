@@ -417,7 +417,11 @@
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCalendarsUsageDescription = "Cortex kann Kalender-Events aus Ihren Knowledge Entries erstellen und Meeting-Notizen importieren.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Cortex benötigt Mikrofon-Zugriff für die Spracheingabe, damit Sie Gedanken und Ideen schnell festhalten können.";
+				INFOPLIST_KEY_NSRemindersUsageDescription = "Cortex kann Erinnerungen aus Ihren Notizen erstellen und mit Ihren Knowledge Entries verknüpfen.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Cortex verwendet Spracherkennung, um Ihre Notizen per Voice-Input zu erfassen und automatisch zu transkribieren.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -467,7 +471,11 @@
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCalendarsUsageDescription = "Cortex kann Kalender-Events aus Ihren Knowledge Entries erstellen und Meeting-Notizen importieren.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Cortex benötigt Mikrofon-Zugriff für die Spracheingabe, damit Sie Gedanken und Ideen schnell festhalten können.";
+				INFOPLIST_KEY_NSRemindersUsageDescription = "Cortex kann Erinnerungen aus Ihren Notizen erstellen und mit Ihren Knowledge Entries verknüpfen.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Cortex verwendet Spracherkennung, um Ihre Notizen per Voice-Input zu erfassen und automatisch zu transkribieren.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

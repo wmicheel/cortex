@@ -172,17 +172,20 @@ final class KnowledgeListViewModel {
     // MARK: - CRUD Operations
 
     /// Create new entry
-    func createEntry(title: String, content: String, tags: [String] = [], autoTag: Bool = true) async {
+    func createEntry(title: String, content: String, tags: [String] = [], autoTag: Bool = true, isBlockBased: Bool = false) async {
         isLoading = true
         error = nil
 
         do {
-            let newEntry = try await knowledgeService.create(
+            var newEntry = try await knowledgeService.create(
                 title: title,
                 content: content,
                 tags: tags,
                 autoTag: autoTag
             )
+
+            // Set block-based flag
+            newEntry.isBlockBased = isBlockBased
 
             // Add to local list
             entries.insert(newEntry, at: 0)

@@ -210,4 +210,32 @@ actor MockKnowledgeService: KnowledgeServiceProtocol {
             .prefix(limit)
             .map { (tag: $0.key, count: $0.value) }
     }
+
+    // MARK: - AI Processing
+
+    func processWithAI(_ entry: KnowledgeEntry, tasks: [AITask]) async throws -> KnowledgeEntry {
+        // Mock implementation - just return entry unchanged
+        return entry
+    }
+
+    func processBatchWithAI(
+        _ entries: [KnowledgeEntry],
+        tasks: [AITask],
+        progressCallback: @Sendable @escaping (Int, Int) -> Void
+    ) async throws -> AIBatchProcessingResult {
+        // Mock implementation - simulate processing
+        for (index, _) in entries.enumerated() {
+            await progressCallback(index + 1, entries.count)
+        }
+
+        return AIBatchProcessingResult(
+            totalEntries: entries.count,
+            successfulEntries: entries.count,
+            failedEntries: 0,
+            results: [:],
+            duration: 0.1,
+            startedAt: Date(),
+            completedAt: Date()
+        )
+    }
 }

@@ -6,14 +6,17 @@
 //
 
 import SwiftUI
+import SwiftData
 
 /// Main content view with navigation
 struct ContentView: View {
     // MARK: - Properties
 
+    @Environment(\.modelContext) private var modelContext
     @State private var selectedTab: Tab = .dashboard
     @State private var showQuickSearch = false
     @State private var selectedEntry: KnowledgeEntry?
+    @State private var migrationPerformed = false
 
     // MARK: - Tab Enum
 
@@ -53,6 +56,34 @@ struct ContentView: View {
             .keyboardShortcut("k", modifiers: .command)
             .hidden()
         )
+        .task {
+            await performMigrationIfNeeded()
+        }
+    }
+
+    // MARK: - Migration
+
+    @MainActor
+    private func performMigrationIfNeeded() async {
+        guard !migrationPerformed else { return }
+        migrationPerformed = true
+
+        let migrationService = BlockMigrationService(modelContext: modelContext)
+
+        // Check if migration is needed
+        guard migrationService.needsMigration() else {
+            print("✅ No migration needed")
+            return
+        }
+
+        print("🔄 Starting automatic block-based migration...")
+
+        do {
+            try await migrationService.migrateAllEntries()
+            print("✅ Migration completed successfully")
+        } catch {
+            print("❌ Migration failed: \(error)")
+        }
     }
 
     // MARK: - Sidebar
