@@ -13,14 +13,16 @@ actor MockKnowledgeService: KnowledgeServiceProtocol {
     // MARK: - Properties
 
     private let mockCloudKit: MockCloudKitService
+    private let tagExtractor: TagExtractionService
     private var cache: [String: KnowledgeEntry] = [:]
     private var cacheTimestamp: Date?
     private let cacheValidityDuration: TimeInterval = 300
 
     // MARK: - Initialization
 
-    init(mockCloudKit: MockCloudKitService = MockCloudKitService()) {
+    init(mockCloudKit: MockCloudKitService = MockCloudKitService(), tagExtractor: TagExtractionService = TagExtractionService()) {
         self.mockCloudKit = mockCloudKit
+        self.tagExtractor = tagExtractor
 
         // Seed initial data
         Task {
@@ -50,17 +52,29 @@ actor MockKnowledgeService: KnowledgeServiceProtocol {
 
     // MARK: - Create
 
-    func create(title: String, content: String, tags: [String] = []) async throws -> KnowledgeEntry {
+    func create(title: String, content: String, tags: [String] = [], autoTag: Bool = true) async throws -> KnowledgeEntry {
+        var finalTags = tags
+
+        // Auto-suggest tags if enabled
+        if autoTag {
+            let suggestedTags = await tagExtractor.suggestTags(title: title, content: content)
+            finalTags = Array(Set(tags + suggestedTags)) // Merge and deduplicate
+        }
+
         let entry = KnowledgeEntry(
             title: title,
             content: content,
-            tags: tags
+            tags: finalTags
         )
 
         let savedEntry = try await mockCloudKit.save(entry)
         updateCache(with: savedEntry)
 
         return savedEntry
+    }
+
+    func suggestTags(title: String, content: String) async -> [String] {
+        return await tagExtractor.suggestTags(title: title, content: content)
     }
 
     // MARK: - Read

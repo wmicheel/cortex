@@ -20,6 +20,9 @@ struct AddKnowledgeView: View {
     @State private var tags: [String] = []
     @State private var isSaving = false
     @State private var showMarkdownPreview = false
+    @State private var isAutoTagEnabled = true
+    @State private var suggestedTags: [String] = []
+    @State private var suggestionTask: Task<Void, Never>?
 
     // MARK: - Body
 
@@ -56,7 +59,18 @@ struct AddKnowledgeView: View {
                     }
                 }
 
-                Section("Tags") {
+                Section {
+                    // Auto-Tag Toggle
+                    Toggle("Auto-Suggest Tags", isOn: $isAutoTagEnabled)
+                        .onChange(of: isAutoTagEnabled) { _, newValue in
+                            if newValue {
+                                updateTagSuggestions()
+                            } else {
+                                suggestedTags = []
+                            }
+                        }
+
+                    // Manual Tag Input
                     HStack {
                         TextField("Add tag", text: $tagInput)
                             .textFieldStyle(.plain)
@@ -71,29 +85,70 @@ struct AddKnowledgeView: View {
                         .disabled(tagInput.isEmpty)
                     }
 
+                    // User Tags
                     if !tags.isEmpty {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                ForEach(tags, id: \.self) { tag in
-                                    TagChip(tag: tag) {
-                                        removeTag(tag)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Your Tags")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(tags, id: \.self) { tag in
+                                        TagChip(tag: tag) {
+                                            removeTag(tag)
+                                        }
                                     }
                                 }
                             }
                         }
                     }
 
-                    // Suggested tags
+                    // AI-Suggested Tags
+                    if isAutoTagEnabled && !suggestedTags.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("AI Suggested (will be added automatically)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(suggestedTags, id: \.self) { tag in
+                                        if !tags.contains(tag) {
+                                            Button(action: {
+                                                tags.append(tag)
+                                            }) {
+                                                HStack(spacing: 4) {
+                                                    Image(systemName: "sparkles")
+                                                        .font(.caption2)
+                                                    Text("#\(tag)")
+                                                }
+                                                .font(.caption)
+                                                .padding(.horizontal, 10)
+                                                .padding(.vertical, 4)
+                                                .background(Color.accentColor.opacity(0.1))
+                                                .foregroundColor(.accentColor)
+                                                .cornerRadius(12)
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Existing Tags (from other entries)
                     if !viewModel.availableTags.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Suggested")
+                            Text("Existing Tags")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
 
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 8) {
                                     ForEach(viewModel.availableTags.prefix(10), id: \.self) { tag in
-                                        if !tags.contains(tag) {
+                                        if !tags.contains(tag) && !suggestedTags.contains(tag) {
                                             Button(action: {
                                                 tags.append(tag)
                                             }) {
@@ -111,10 +166,18 @@ struct AddKnowledgeView: View {
                             }
                         }
                     }
+                } header: {
+                    Text("Tags")
                 }
             }
             .formStyle(.grouped)
             .navigationTitle("Add Knowledge Entry")
+            .onChange(of: title) { _, _ in
+                updateTagSuggestions()
+            }
+            .onChange(of: content) { _, _ in
+                updateTagSuggestions()
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -166,11 +229,47 @@ struct AddKnowledgeView: View {
             await viewModel.createEntry(
                 title: title.trimmingCharacters(in: .whitespacesAndNewlines),
                 content: content.trimmingCharacters(in: .whitespacesAndNewlines),
-                tags: tags
+                tags: tags,
+                autoTag: isAutoTagEnabled
             )
 
             isSaving = false
             dismiss()
+        }
+    }
+
+    private func updateTagSuggestions() {
+        // Cancel previous task
+        suggestionTask?.cancel()
+
+        // Only suggest if auto-tag is enabled and we have content
+        guard isAutoTagEnabled else {
+            suggestedTags = []
+            return
+        }
+
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmedTitle.isEmpty || !trimmedContent.isEmpty else {
+            suggestedTags = []
+            return
+        }
+
+        // Debounce: wait 800ms before suggesting
+        suggestionTask = Task {
+            try? await Task.sleep(for: .milliseconds(800))
+
+            guard !Task.isCancelled else { return }
+
+            let suggestions = await viewModel.suggestTags(
+                title: trimmedTitle,
+                content: trimmedContent
+            )
+
+            guard !Task.isCancelled else { return }
+
+            suggestedTags = suggestions
         }
     }
 }

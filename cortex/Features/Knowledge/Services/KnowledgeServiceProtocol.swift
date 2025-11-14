@@ -12,7 +12,8 @@ import Foundation
 protocol KnowledgeServiceProtocol: Actor {
     // MARK: - Create
 
-    func create(title: String, content: String, tags: [String]) async throws -> KnowledgeEntry
+    func create(title: String, content: String, tags: [String], autoTag: Bool) async throws -> KnowledgeEntry
+    func suggestTags(title: String, content: String) async -> [String]
 
     // MARK: - Read
 

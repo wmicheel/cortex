@@ -156,7 +156,7 @@ final class KnowledgeListViewModel {
     // MARK: - CRUD Operations
 
     /// Create new entry
-    func createEntry(title: String, content: String, tags: [String] = []) async {
+    func createEntry(title: String, content: String, tags: [String] = [], autoTag: Bool = true) async {
         isLoading = true
         error = nil
 
@@ -164,7 +164,8 @@ final class KnowledgeListViewModel {
             let newEntry = try await knowledgeService.create(
                 title: title,
                 content: content,
-                tags: tags
+                tags: tags,
+                autoTag: autoTag
             )
 
             // Add to local list
@@ -177,6 +178,11 @@ final class KnowledgeListViewModel {
         }
 
         isLoading = false
+    }
+
+    /// Suggest tags for given title and content
+    func suggestTags(title: String, content: String) async -> [String] {
+        return await knowledgeService.suggestTags(title: title, content: content)
     }
 
     /// Update entry

@@ -15,6 +15,9 @@ actor KnowledgeService: KnowledgeServiceProtocol {
     /// CloudKit service for data persistence
     private let cloudKitService: CloudKitService
 
+    /// Tag extraction service for auto-tagging
+    private let tagExtractor: TagExtractionService
+
     /// In-memory cache for faster access
     private var cache: [String: KnowledgeEntry] = [:]
 
@@ -26,8 +29,9 @@ actor KnowledgeService: KnowledgeServiceProtocol {
 
     // MARK: - Initialization
 
-    init(cloudKitService: CloudKitService = CloudKitService()) {
+    init(cloudKitService: CloudKitService = CloudKitService(), tagExtractor: TagExtractionService = TagExtractionService()) {
         self.cloudKitService = cloudKitService
+        self.tagExtractor = tagExtractor
     }
 
     // MARK: - Cache Management
@@ -57,17 +61,36 @@ actor KnowledgeService: KnowledgeServiceProtocol {
     // MARK: - Create
 
     /// Create a new knowledge entry
-    func create(title: String, content: String, tags: [String] = []) async throws -> KnowledgeEntry {
+    /// - Parameters:
+    ///   - title: Entry title
+    ///   - content: Entry content
+    ///   - tags: User-provided tags
+    ///   - autoTag: Whether to auto-suggest additional tags
+    /// - Returns: Created knowledge entry
+    func create(title: String, content: String, tags: [String] = [], autoTag: Bool = true) async throws -> KnowledgeEntry {
+        var finalTags = tags
+
+        // Auto-suggest tags if enabled
+        if autoTag {
+            let suggestedTags = await tagExtractor.suggestTags(title: title, content: content)
+            finalTags = Array(Set(tags + suggestedTags)) // Merge and deduplicate
+        }
+
         let entry = KnowledgeEntry(
             title: title,
             content: content,
-            tags: tags
+            tags: finalTags
         )
 
         let savedEntry = try await cloudKitService.save(entry)
         updateCache(with: savedEntry)
 
         return savedEntry
+    }
+
+    /// Suggest tags for title and content without creating entry
+    func suggestTags(title: String, content: String) async -> [String] {
+        return await tagExtractor.suggestTags(title: title, content: content)
     }
 
     // MARK: - Read
