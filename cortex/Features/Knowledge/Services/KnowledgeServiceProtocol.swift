@@ -9,7 +9,7 @@ import Foundation
 
 /// Protocol for knowledge service implementations
 /// Allows swapping between real CloudKit and Mock implementations
-protocol KnowledgeServiceProtocol: Actor {
+protocol KnowledgeServiceProtocol {
     // MARK: - Create
 
     func create(title: String, content: String, tags: [String], autoTag: Bool) async throws -> KnowledgeEntry

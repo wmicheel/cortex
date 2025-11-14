@@ -23,7 +23,7 @@ actor CloudKitService {
 
     /// Initialize with default iCloud container
     init() {
-        self.container = CKContainer.default()
+        self.container = CKContainer(identifier: "iCloud.wieland.cortex")
         self.database = container.privateCloudDatabase
     }
 

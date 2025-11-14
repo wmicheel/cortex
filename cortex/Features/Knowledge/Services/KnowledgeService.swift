@@ -9,7 +9,8 @@ import CloudKit
 import Foundation
 
 /// Domain-specific service for knowledge management operations
-actor KnowledgeService: KnowledgeServiceProtocol {
+@MainActor
+final class KnowledgeService: KnowledgeServiceProtocol {
     // MARK: - Properties
 
     /// CloudKit service for data persistence

@@ -65,8 +65,18 @@ final class KnowledgeListViewModel {
     // MARK: - Initialization
 
     init(knowledgeService: (any KnowledgeServiceProtocol)? = nil) {
-        // Use real KnowledgeService (CloudKit-backed)
-        self.knowledgeService = knowledgeService ?? KnowledgeService()
+        if let service = knowledgeService {
+            self.knowledgeService = service
+        } else {
+            // Try SwiftData, fallback to Mock if it fails
+            do {
+                self.knowledgeService = try SwiftDataKnowledgeService()
+                print("✅ Using SwiftDataKnowledgeService")
+            } catch {
+                print("⚠️  SwiftData unavailable, using MockKnowledgeService: \(error)")
+                self.knowledgeService = MockKnowledgeService()
+            }
+        }
     }
 
     // MARK: - Lifecycle

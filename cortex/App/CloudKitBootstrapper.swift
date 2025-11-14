@@ -14,7 +14,7 @@ actor CloudKitBootstrapper {
 
     /// Check CloudKit availability and account status
     static func checkCloudKitStatus() async throws {
-        let container = CKContainer.default()
+        let container = CKContainer(identifier: "iCloud.wieland.cortex")
 
         do {
             let status = try await container.accountStatus()
@@ -50,7 +50,7 @@ actor CloudKitBootstrapper {
 
     /// Verify record types exist (development only)
     static func verifySchema() async throws {
-        let container = CKContainer.default()
+        let container = CKContainer(identifier: "iCloud.wieland.cortex")
         let database = container.privateCloudDatabase
 
         // Try to fetch a record (will fail gracefully if none exist)

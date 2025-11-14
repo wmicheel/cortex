@@ -10,8 +10,8 @@ Cortex is a personal Second Brain application deeply integrated into the Apple e
 - **Language:** Swift 6.0
 - **UI Framework:** SwiftUI
 - **Architecture:** MVVM
-- **Storage:** CloudKit (private database)
-- **AI Integration:** 
+- **Storage:** SwiftData (local persistence, CloudKit-ready for future migration)
+- **AI Integration:**
   - Claude (web-based, no API)
   - ChatGPT Business (via Siri integration)
   - Context7 (semantic search, direct API)
@@ -25,12 +25,12 @@ Cortex/
 │   └── AppDelegate.swift         # System integration
 ├── Core/
 │   ├── Models/                   # Data models
-│   │   ├── KnowledgeEntry.swift
-│   │   ├── CloudKitRecord.swift
+│   │   ├── KnowledgeEntry.swift  # @Model class (SwiftData)
+│   │   ├── CloudKitRecord.swift  # Protocol for future CloudKit migration
 │   │   └── Context7Models.swift
 │   ├── ViewModels/               # MVVM ViewModels
 │   ├── Services/                 # Business logic
-│   │   ├── CloudKitService.swift
+│   │   ├── CloudKitService.swift # For future CloudKit migration
 │   │   ├── Context7Service.swift
 │   │   └── KeychainManager.swift
 │   └── Utilities/
@@ -50,7 +50,10 @@ Cortex/
 │   │   │   ├── KnowledgeListViewModel.swift
 │   │   │   └── KnowledgeDetailViewModel.swift
 │   │   └── Services/
-│   │       └── KnowledgeService.swift
+│   │       ├── KnowledgeServiceProtocol.swift
+│   │       ├── SwiftDataKnowledgeService.swift  # Current implementation
+│   │       ├── KnowledgeService.swift           # CloudKit (for future)
+│   │       └── MockKnowledgeService.swift       # Testing
 │   ├── AIIntegration/            # Claude/ChatGPT integration
 │   │   ├── Views/
 │   │   │   ├── ClaudeWebView.swift
@@ -85,17 +88,25 @@ Cortex/
 ### MVVM Pattern
 - **Views:** SwiftUI views (purely presentational)
 - **ViewModels:** Business logic, state management, @Observable
-- **Models:** Data structures, CloudKit records
+- **Models:** Data structures, SwiftData @Model classes
 - **Services:** API clients, data persistence, AI integration
 
 ### Data Flow
 1. View observes ViewModel
 2. ViewModel coordinates Services
-3. Services handle CloudKit, Context7, AI APIs, system integration
+3. Services handle SwiftData, Context7, AI APIs, system integration
 4. Changes flow back through @Published or @Observable properties
 
-### CloudKit Strategy
-- **Private Database:** User's personal knowledge base
+### SwiftData Strategy (Current)
+- **Local Persistence:** All data stored locally on Mac
+- **No iCloud Required:** Works without Apple Developer Program
+- **ModelContainer:** Single container for all KnowledgeEntry objects
+- **ModelContext:** Main actor-isolated context for all operations
+- **In-Memory Cache:** Additional caching layer in service for performance
+- **CloudKit-Ready:** Protocol architecture allows seamless migration
+
+### Future CloudKit Migration
+- **Private Database:** User's personal knowledge base (when ready)
 - **Record Types:**
   - `KnowledgeEntry` (id, title, content, tags, created, modified)
   - `AIConversation` (id, service, messages, context, timestamp)
@@ -132,20 +143,100 @@ Cortex/
 ### Testing Strategy
 - Unit tests for ViewModels and Services
 - UI tests for critical user flows
-- CloudKit mock services for testing
+- Mock services for testing (MockKnowledgeService)
 - Test coverage goal: >80% for business logic
 - Use Swift Testing framework (new in Swift 6)
 
-## CloudKit Integration
+## SwiftData Integration (Current Implementation)
+
+### KnowledgeEntry Model
+SwiftData @Model class with CloudKit compatibility:
+
+```swift
+@Model
+final class KnowledgeEntry {
+    @Attribute(.unique) var id: String
+    var title: String
+    var content: String
+    var tags: [String]
+    var createdAt: Date
+    var modifiedAt: Date
+    var linkedReminderID: String?
+    var linkedCalendarEventID: String?
+
+    init(id: String = UUID().uuidString, title: String, content: String, ...) {
+        // Initialize properties
+    }
+}
+
+// CloudKit conformance preserved for future migration
+extension KnowledgeEntry: CloudKitRecord {
+    static let recordType = "KnowledgeEntry"
+    func toCKRecord() -> CKRecord { /* ... */ }
+    convenience init?(from record: CKRecord) { /* ... */ }
+}
+```
+
+### SwiftDataKnowledgeService
+Main actor-isolated service for local persistence:
+
+```swift
+@MainActor
+final class SwiftDataKnowledgeService: KnowledgeServiceProtocol {
+    private let modelContainer: ModelContainer
+    private let modelContext: ModelContext
+    private let tagExtractor: TagExtractionService
+    private var cache: [String: KnowledgeEntry] = [:]
+
+    init() throws {
+        let schema = Schema([KnowledgeEntry.self])
+        let configuration = ModelConfiguration(
+            schema: schema,
+            isStoredInMemoryOnly: false,
+            allowsSave: true
+        )
+        self.modelContainer = try ModelContainer(for: schema, configurations: [configuration])
+        self.modelContext = ModelContext(modelContainer)
+        self.tagExtractor = TagExtractionService()
+    }
+
+    // CRUD operations using SwiftData
+    func create(title: String, content: String, tags: [String], autoTag: Bool) async throws -> KnowledgeEntry
+    func fetch(id: String) async throws -> KnowledgeEntry
+    func fetchAll(forceRefresh: Bool) async throws -> [KnowledgeEntry]
+    func update(_ entry: KnowledgeEntry) async throws -> KnowledgeEntry
+    func delete(_ entry: KnowledgeEntry) async throws
+    // ... more methods
+}
+```
+
+### KnowledgeServiceProtocol
+Protocol-based architecture for easy service swapping:
+
+```swift
+protocol KnowledgeServiceProtocol {
+    func create(title: String, content: String, tags: [String], autoTag: Bool) async throws -> KnowledgeEntry
+    func fetch(id: String) async throws -> KnowledgeEntry
+    func fetchAll(forceRefresh: Bool) async throws -> [KnowledgeEntry]
+    // ... all CRUD operations
+}
+```
+
+**Implementations:**
+- `SwiftDataKnowledgeService` - Current (local storage)
+- `KnowledgeService` - CloudKit (ready for future)
+- `MockKnowledgeService` - Testing
+
+## CloudKit Integration (Future Migration)
 
 ### CloudKitRecord Protocol
-All CloudKit-backed models conform to this protocol:
+Models can conform to this for CloudKit compatibility:
 
 ```swift
 protocol CloudKitRecord {
     static var recordType: String { get }
-    var recordID: CKRecord.ID? { get set }
-    
+    var id: String { get }
+
     func toCKRecord() -> CKRecord
     init?(from record: CKRecord)
 }
@@ -415,11 +506,12 @@ struct CortexApp: App {
 ## Security & Privacy
 
 ### Data Protection
-- CloudKit private database only (no shared/public databases)
+- SwiftData local storage (all data stays on device)
 - No third-party analytics or tracking
-- Local-first architecture (offline-capable)
-- Encrypted storage for sensitive data
+- Local-first architecture (fully offline-capable)
+- macOS system-level encryption for data at rest
 - Keychain for API keys and credentials
+- Future: CloudKit private database option (no shared/public databases)
 
 ### API Keys & Secrets
 - Store in Keychain Services (never in UserDefaults)
@@ -428,33 +520,39 @@ struct CortexApp: App {
 - Environment-specific configuration
 
 ### Privacy Considerations
-- User controls all data
-- No data leaves device except to Apple (CloudKit) and user-configured services
+- User controls all data (100% local storage)
+- No data leaves device except to user-configured services (Context7, AI)
 - Clear privacy policy in Settings
 - Option to disable Context7 semantic search
 - Option to disable AI integrations
+- No Apple Developer account or iCloud required
 
 ## Build & Run
 
 ### Requirements
 - Xcode 26+
 - macOS 26 (Tahoe)
-- Apple Developer Account (for CloudKit)
 - GitHub CLI (for development workflow)
 - Claude Code CLI (for AI-assisted development)
+- Optional: Apple Developer Account (for future CloudKit migration)
 
 ### Build Schemes
-- **Cortex (Development):** Debug configuration, development CloudKit environment
-- **Cortex (Release):** Optimized, production CloudKit environment
+- **Cortex (Development):** Debug configuration, local SwiftData storage
+- **Cortex (Release):** Optimized build, local SwiftData storage
 
-### CloudKit Configuration
+### Current Setup (SwiftData)
+1. Open Xcode Project: `cortex.xcodeproj`
+2. Select scheme: `cortex`
+3. Build and run: `Cmd+R`
+4. Data stored in: `~/Library/Application Support/cortex/`
+
+### Future CloudKit Configuration (When Ready)
 1. Open Xcode Project
 2. Select Cortex target → Signing & Capabilities
 3. Enable iCloud capability
 4. Check CloudKit
-5. Select/create container: `iCloud.com.wieland.Cortex`
-6. Development environment: Default during development
-7. Production environment: For release builds
+5. Select/create container: `iCloud.wieland.cortex`
+6. Update `KnowledgeListViewModel` to use `KnowledgeService` instead of `SwiftDataKnowledgeService`
 
 ### Environment Setup
 
@@ -471,7 +569,7 @@ DEBUG_MODE=true
 ## Dependencies (Swift Package Manager)
 
 ### Current
-- None (pure SwiftUI/CloudKit/Foundation initially)
+- None (pure SwiftUI/SwiftData/Foundation)
 
 ### Planned
 - To be determined based on feature needs
@@ -479,8 +577,15 @@ DEBUG_MODE=true
 
 ## Known Gotchas
 
-### CloudKit
-- Requires valid Apple Developer account
+### SwiftData
+- @Model classes cannot conform to Sendable (use @unchecked Sendable if needed)
+- Models must be classes, not structs
+- ModelContext is MainActor-isolated
+- Identifiable conformance is automatic with @Model
+- Changes are auto-saved when context changes
+
+### Future CloudKit Migration
+- Will require valid Apple Developer account
 - Container must be properly configured in Signing & Capabilities
 - Development vs Production environments are completely separate
 - Record type changes require schema updates in CloudKit Dashboard
@@ -530,28 +635,34 @@ DEBUG_MODE=true
 - [x] CLAUDE.md documentation
 - [x] Skills creation
 - [x] Basic SwiftUI structure
-- [x] CloudKit integration (CloudKitService, CloudKitRecord)
 - [x] MVVM architecture skeleton
-- [x] KnowledgeEntry model with CloudKit conformance
-- [x] KnowledgeService with CRUD operations
+- [x] **SwiftData integration** (local persistence)
+- [x] KnowledgeEntry @Model class
+- [x] SwiftDataKnowledgeService with CRUD operations
+- [x] KnowledgeServiceProtocol for service abstraction
+- [x] CloudKitRecord protocol (ready for future migration)
 - [x] KeychainManager for secure API key storage
 - [x] KnowledgeListViewModel with @Observable
 - [x] Knowledge management UI (List, Detail, Add)
-- [x] Unit tests for models and services
+- [x] Auto-tagging with TagExtractionService
+- [x] Reminders integration (EventKit)
+- [x] Calendar integration (EventKit)
+- [x] Voice input for entries
+- [x] Unit tests for models
 - [x] App builds and runs successfully
 
-### Phase 2: Core Features (Current - Ready to Start)
-- [x] KnowledgeEntry model with CloudKit conformance
-- [x] CloudKitService (generic CRUD)
-- [x] KnowledgeService (domain-specific)
-- [x] KeychainManager for secure storage
-- [x] Knowledge management UI (List, Detail, Add/Edit)
-- [x] Basic search functionality (CloudKit text search)
-- [x] Tagging system
+### Phase 2: Core Features (Current - In Progress)
+- [x] SwiftData persistence working
+- [x] Knowledge CRUD operations
+- [x] Search functionality (local text search)
+- [x] Tagging system with auto-extraction
+- [x] Apple Reminders integration
+- [x] Apple Calendar integration
 - [ ] Dashboard UI skeleton
 - [ ] Polish UI/UX
 - [ ] Add keyboard shortcuts
 - [ ] Implement proper error alerts in UI
+- [ ] Add data export/import
 
 ### Phase 3: Context7 Integration
 - [ ] Context7Service implementation
@@ -606,12 +717,12 @@ Before considering any feature complete:
 - [ ] MVVM separation maintained
 - [ ] Proper error handling implemented
 - [ ] Unit tests written for business logic
-- [ ] Actor isolation used for Services
-- [ ] @MainActor applied to UI code
-- [ ] CloudKit operations are async/await
+- [ ] @MainActor applied to UI code and main-thread services
+- [ ] SwiftData operations are async/await
 - [ ] Code documented with comments
 - [ ] No force unwrapping (!)
 - [ ] SwiftLint compliant (when configured)
+- [ ] Protocol-based architecture maintained for service abstraction
 
 ## MCP Servers Available
 
@@ -685,16 +796,23 @@ claude mcp list
 
 ## Troubleshooting
 
-### CloudKit Issues
+### SwiftData Issues
+- Data not persisting: Check `~/Library/Application Support/cortex/`
+- Model schema changes: Delete app data and rebuild
+- @Model macro errors: Ensure class (not struct), no Sendable conformance
+- MainActor isolation errors: Ensure services are @MainActor
+
+### Build Failures
+- Clean build folder: `Cmd+Shift+K`
+- Delete DerivedData: `rm -rf ~/Library/Developer/Xcode/DerivedData`
+- Verify all dependencies are resolved
+- Check Swift 6 concurrency compliance
+
+### Future CloudKit Issues
 - Verify Apple Developer account is active
 - Check Signing & Capabilities in Xcode
 - Ensure network connectivity
 - Check CloudKit Dashboard for record types
-
-### Build Failures
-- Clean build folder: `cmd + shift + K`
-- Delete DerivedData: `rm -rf ~/Library/Developer/Xcode/DerivedData`
-- Verify all dependencies are resolved
 
 ### Context7 Issues
 - Check API key is valid in Keychain
@@ -709,23 +827,27 @@ claude mcp list
 
 ## Success Metrics
 
-### Phase 1 Complete When:
+### Phase 1 Complete When: ✅ DONE
 - [x] Project structure created
 - [x] GitHub connected
 - [x] Claude Code configured
-- [x] CloudKit integration works
+- [x] SwiftData integration working
 - [x] Can CRUD knowledge entries
-- [x] Unit tests written (models and services)
+- [x] Unit tests written (models)
 - [x] App builds without errors
 - [x] App launches and displays UI
+- [x] Reminders & Calendar integration working
+- [x] Voice input working
+- [x] Auto-tagging working
 
 ### MVP Complete When:
 - Knowledge management fully functional
-- CloudKit sync working
+- SwiftData persistence stable
 - Context7 semantic search operational
 - Basic UI polished
 - No critical bugs
 - Ready for personal daily use
+- Optional: CloudKit sync as upgrade path
 
 ### v1.0 Complete When:
 - All features implemented
@@ -737,6 +859,7 @@ claude mcp list
 
 ---
 
-**Last Updated:** 2025-11-13
-**Project Status:** Phase 1 COMPLETED ✅ | Phase 2 Ready
-**Next Milestone:** Polish Core Features & Context7 Integration
+**Last Updated:** 2025-11-14
+**Project Status:** Phase 1 COMPLETED ✅ | Phase 2 In Progress
+**Storage:** SwiftData (local) - CloudKit migration ready when needed
+**Next Milestone:** UI Polish & Context7 Integration
