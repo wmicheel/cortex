@@ -12,6 +12,11 @@ struct DashboardView: View {
     // MARK: - Properties
 
     @State private var knowledgeViewModel = KnowledgeListViewModel()
+    @State private var showingAddSheet = false
+    @State private var showQuickSearch = false
+
+    var onNavigateToKnowledge: () -> Void = {}
+    var onNavigateToSettings: () -> Void = {}
 
     // MARK: - Body
 
@@ -22,7 +27,9 @@ struct DashboardView: View {
                 headerSection
 
                 // Statistics Cards
-                if let stats = knowledgeViewModel.statistics {
+                if knowledgeViewModel.isLoading && knowledgeViewModel.statistics == nil {
+                    skeletonStatistics
+                } else if let stats = knowledgeViewModel.statistics {
                     statisticsSection(stats: stats)
                 }
 
@@ -35,6 +42,14 @@ struct DashboardView: View {
             .padding()
         }
         .navigationTitle("Dashboard")
+        .sheet(isPresented: $showingAddSheet) {
+            AddKnowledgeView(viewModel: knowledgeViewModel)
+        }
+        .errorAlert(error: $knowledgeViewModel.error, onRetry: {
+            Task {
+                await knowledgeViewModel.refresh()
+            }
+        })
         .task {
             await knowledgeViewModel.onAppear()
         }
@@ -51,6 +66,22 @@ struct DashboardView: View {
             Text("Your Second Brain")
                 .font(.title3)
                 .foregroundColor(.secondary)
+        }
+    }
+
+    // MARK: - Skeleton Statistics
+
+    private var skeletonStatistics: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Overview")
+                .font(.title2)
+                .fontWeight(.semibold)
+
+            HStack(spacing: 16) {
+                SkeletonStatCard()
+                SkeletonStatCard()
+                SkeletonStatCard()
+            }
         }
     }
 
@@ -156,7 +187,7 @@ struct DashboardView: View {
                     icon: "plus.circle.fill",
                     color: .blue
                 ) {
-                    // Action handled by parent
+                    showingAddSheet = true
                 }
 
                 QuickActionButton(
@@ -164,7 +195,7 @@ struct DashboardView: View {
                     icon: "magnifyingglass.circle.fill",
                     color: .green
                 ) {
-                    // Action handled by parent
+                    onNavigateToKnowledge()
                 }
 
                 QuickActionButton(
@@ -172,7 +203,7 @@ struct DashboardView: View {
                     icon: "gearshape.circle.fill",
                     color: .gray
                 ) {
-                    // Action handled by parent
+                    onNavigateToSettings()
                 }
             }
         }
@@ -181,20 +212,16 @@ struct DashboardView: View {
     // MARK: - Empty State
 
     private var emptyStateView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "brain.head.profile")
-                .font(.system(size: 48))
-                .foregroundColor(.secondary)
-
-            Text("No entries yet")
-                .font(.headline)
-
-            Text("Start building your second brain")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 32)
+        EmptyStateView(
+            icon: "brain.head.profile",
+            title: "No Recent Entries",
+            message: "Your recent knowledge entries will appear here once you start adding content.",
+            actionTitle: "Add First Entry",
+            action: {
+                showingAddSheet = true
+            }
+        )
+        .frame(height: 200)
         .background(Color(nsColor: .controlBackgroundColor))
         .cornerRadius(12)
     }

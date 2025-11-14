@@ -38,15 +38,11 @@ struct KnowledgeListView: View {
             .sheet(isPresented: $showingAddSheet) {
                 AddKnowledgeView(viewModel: viewModel)
             }
-            .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
-                Button("OK") {
-                    viewModel.clearError()
+            .errorAlert(error: $viewModel.error, onRetry: {
+                Task {
+                    await viewModel.refresh()
                 }
-            } message: {
-                if let error = viewModel.errorMessage {
-                    Text(error)
-                }
-            }
+            })
         } detail: {
             detailView
         }
@@ -167,50 +163,52 @@ struct KnowledgeListView: View {
     // MARK: - Loading View
 
     private var loadingView: some View {
-        VStack(spacing: 16) {
-            ProgressView()
-                .scaleEffect(1.2)
-            Text("Loading knowledge entries...")
-                .foregroundColor(.secondary)
+        List {
+            ForEach(0..<5, id: \.self) { _ in
+                SkeletonEntryRow()
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .listStyle(.sidebar)
     }
 
     // MARK: - Empty State
 
     private var emptyStateView: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "brain.head.profile")
-                .font(.system(size: 60))
-                .foregroundColor(.secondary)
-
-            Text("No Knowledge Entries")
-                .font(.title2)
-                .fontWeight(.semibold)
-
-            Text(emptyStateMessage)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
-
-            Button(action: {
-                showingAddSheet = true
-            }) {
-                Label("Add First Entry", systemImage: "plus.circle.fill")
-                    .font(.headline)
+        Group {
+            if !viewModel.searchText.isEmpty {
+                // No search results
+                EmptyStateView(
+                    icon: "magnifyingglass",
+                    title: "No Results Found",
+                    message: "No entries match '\(viewModel.searchText)'. Try adjusting your search query.",
+                    actionTitle: "Clear Search",
+                    action: {
+                        viewModel.searchText = ""
+                    }
+                )
+            } else if let tag = viewModel.selectedTag {
+                // No entries with selected tag
+                EmptyStateView(
+                    icon: "tag.slash",
+                    title: "No Entries with #\(tag)",
+                    message: "There are no knowledge entries tagged with '\(tag)'.",
+                    actionTitle: "Clear Filter",
+                    action: {
+                        viewModel.clearTagFilter()
+                    }
+                )
+            } else {
+                // No entries at all
+                EmptyStateView(
+                    icon: "brain.head.profile",
+                    title: "No Knowledge Entries",
+                    message: "Start building your second brain by capturing your thoughts, ideas, and learnings.",
+                    actionTitle: "Add First Entry",
+                    action: {
+                        showingAddSheet = true
+                    }
+                )
             }
-            .buttonStyle(.borderedProminent)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var emptyStateMessage: String {
-        if !viewModel.searchText.isEmpty {
-            return "No entries match '\(viewModel.searchText)'"
-        } else if viewModel.selectedTag != nil {
-            return "No entries with this tag"
-        } else {
-            return "Start building your second brain by adding your first knowledge entry"
         }
     }
 

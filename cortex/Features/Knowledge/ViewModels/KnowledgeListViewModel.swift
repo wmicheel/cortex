@@ -38,8 +38,8 @@ final class KnowledgeListViewModel {
     /// Loading state
     private(set) var isLoading = false
 
-    /// Error message
-    private(set) var errorMessage: String?
+    /// Error state
+    var error: CortexError?
 
     /// Available tags
     private(set) var availableTags: [String] = []
@@ -90,7 +90,7 @@ final class KnowledgeListViewModel {
     /// Load knowledge entries
     private func loadEntries(forceRefresh: Bool = false) async {
         isLoading = true
-        errorMessage = nil
+        error = nil
 
         do {
             if let tag = selectedTag {
@@ -99,7 +99,7 @@ final class KnowledgeListViewModel {
                 entries = try await knowledgeService.fetchAll(forceRefresh: forceRefresh)
             }
         } catch {
-            errorMessage = handleError(error)
+            self.error = handleError(error)
             // Don't crash - just show empty state with error
             entries = []
         }
@@ -141,12 +141,12 @@ final class KnowledgeListViewModel {
             guard !Task.isCancelled else { return }
 
             isLoading = true
-            errorMessage = nil
+            error = nil
 
             do {
                 entries = try await knowledgeService.search(query: searchText)
             } catch {
-                errorMessage = handleError(error)
+                self.error = handleError(error)
             }
 
             isLoading = false
@@ -158,7 +158,7 @@ final class KnowledgeListViewModel {
     /// Create new entry
     func createEntry(title: String, content: String, tags: [String] = []) async {
         isLoading = true
-        errorMessage = nil
+        error = nil
 
         do {
             let newEntry = try await knowledgeService.create(
@@ -173,7 +173,7 @@ final class KnowledgeListViewModel {
             // Reload tags if new ones were added
             await loadTags()
         } catch {
-            errorMessage = handleError(error)
+            self.error = handleError(error)
         }
 
         isLoading = false
@@ -182,7 +182,7 @@ final class KnowledgeListViewModel {
     /// Update entry
     func updateEntry(_ entry: KnowledgeEntry) async {
         isLoading = true
-        errorMessage = nil
+        error = nil
 
         do {
             let updatedEntry = try await knowledgeService.update(entry)
@@ -195,7 +195,7 @@ final class KnowledgeListViewModel {
             // Reload tags if they changed
             await loadTags()
         } catch {
-            errorMessage = handleError(error)
+            self.error = handleError(error)
         }
 
         isLoading = false
@@ -204,7 +204,7 @@ final class KnowledgeListViewModel {
     /// Delete entry
     func deleteEntry(_ entry: KnowledgeEntry) async {
         isLoading = true
-        errorMessage = nil
+        error = nil
 
         do {
             try await knowledgeService.delete(entry)
@@ -216,7 +216,7 @@ final class KnowledgeListViewModel {
             await loadTags()
             await loadStatistics()
         } catch {
-            errorMessage = handleError(error)
+            self.error = handleError(error)
         }
 
         isLoading = false
@@ -225,7 +225,7 @@ final class KnowledgeListViewModel {
     /// Delete multiple entries
     func deleteEntries(_ entriesToDelete: [KnowledgeEntry]) async {
         isLoading = true
-        errorMessage = nil
+        error = nil
 
         do {
             try await knowledgeService.deleteAll(entriesToDelete)
@@ -238,7 +238,7 @@ final class KnowledgeListViewModel {
             await loadTags()
             await loadStatistics()
         } catch {
-            errorMessage = handleError(error)
+            self.error = handleError(error)
         }
 
         isLoading = false
@@ -259,7 +259,7 @@ final class KnowledgeListViewModel {
             // Reload tags
             await loadTags()
         } catch {
-            errorMessage = handleError(error)
+            self.error = handleError(error)
         }
     }
 
@@ -276,7 +276,7 @@ final class KnowledgeListViewModel {
             // Reload tags
             await loadTags()
         } catch {
-            errorMessage = handleError(error)
+            self.error = handleError(error)
         }
     }
 
@@ -288,15 +288,15 @@ final class KnowledgeListViewModel {
     // MARK: - Error Handling
 
     /// Handle and format error
-    private func handleError(_ error: Error) -> String {
+    private func handleError(_ error: Error) -> CortexError {
         if let cortexError = error as? CortexError {
-            return cortexError.localizedDescription
+            return cortexError
         }
-        return error.localizedDescription
+        return .unknown(underlying: error)
     }
 
     /// Clear error
     func clearError() {
-        errorMessage = nil
+        error = nil
     }
 }

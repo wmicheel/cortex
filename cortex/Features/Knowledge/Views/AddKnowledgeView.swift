@@ -19,6 +19,7 @@ struct AddKnowledgeView: View {
     @State private var tagInput = ""
     @State private var tags: [String] = []
     @State private var isSaving = false
+    @State private var showMarkdownPreview = false
 
     // MARK: - Body
 
@@ -30,10 +31,29 @@ struct AddKnowledgeView: View {
                         .textFieldStyle(.plain)
                 }
 
-                Section("Content") {
-                    TextEditor(text: $content)
+                Section {
+                    if showMarkdownPreview {
+                        ScrollView {
+                            MarkdownView(markdown: content.isEmpty ? "*Preview will appear here*" : content)
+                                .frame(minHeight: 200, alignment: .topLeading)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                         .frame(minHeight: 200)
-                        .font(.body)
+                    } else {
+                        TextEditor(text: $content)
+                            .frame(minHeight: 200)
+                            .font(.body)
+                    }
+                } header: {
+                    HStack {
+                        Text("Content")
+                        Spacer()
+                        Button(showMarkdownPreview ? "Edit" : "Preview") {
+                            showMarkdownPreview.toggle()
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(.accentColor)
+                    }
                 }
 
                 Section("Tags") {
@@ -111,6 +131,7 @@ struct AddKnowledgeView: View {
                 }
             }
             .disabled(isSaving)
+            .loadingOverlay(isLoading: isSaving, message: "Saving entry...")
         }
     }
 

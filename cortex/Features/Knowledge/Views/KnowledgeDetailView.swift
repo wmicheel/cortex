@@ -126,9 +126,8 @@ struct KnowledgeDetailView: View {
                     .font(.body)
                     .border(Color.secondary.opacity(0.2))
             } else {
-                Text(entry.content)
+                MarkdownView(markdown: entry.content)
                     .font(.body)
-                    .textSelection(.enabled)
             }
         }
     }

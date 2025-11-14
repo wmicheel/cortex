@@ -12,6 +12,8 @@ struct ContentView: View {
     // MARK: - Properties
 
     @State private var selectedTab: Tab = .dashboard
+    @State private var showQuickSearch = false
+    @State private var selectedEntry: KnowledgeEntry?
 
     // MARK: - Tab Enum
 
@@ -30,6 +32,27 @@ struct ContentView: View {
             detailView
         }
         .navigationSplitViewStyle(.balanced)
+        .overlay {
+            if showQuickSearch {
+                Color.black.opacity(0.3)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        showQuickSearch = false
+                    }
+
+                QuickSearchView(isPresented: $showQuickSearch) { entry in
+                    selectedEntry = entry
+                    selectedTab = .knowledge
+                }
+            }
+        }
+        .background(
+            Button("") {
+                showQuickSearch.toggle()
+            }
+            .keyboardShortcut("k", modifiers: .command)
+            .hidden()
+        )
     }
 
     // MARK: - Sidebar
@@ -59,7 +82,14 @@ struct ContentView: View {
     private var detailView: some View {
         switch selectedTab {
         case .dashboard:
-            DashboardView()
+            DashboardView(
+                onNavigateToKnowledge: {
+                    selectedTab = .knowledge
+                },
+                onNavigateToSettings: {
+                    selectedTab = .settings
+                }
+            )
         case .knowledge:
             KnowledgeListView()
         case .settings:
