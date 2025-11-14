@@ -52,7 +52,7 @@ actor MockKnowledgeService: KnowledgeServiceProtocol {
 
     // MARK: - Create
 
-    func create(title: String, content: String, tags: [String] = [], autoTag: Bool = true) async throws -> KnowledgeEntry {
+    func create(title: String, content: String, tags: [String] = [], autoTag: Bool = true, useAITagging: Bool = false) async throws -> KnowledgeEntry {
         var finalTags = tags
 
         // Auto-suggest tags if enabled
@@ -69,6 +69,9 @@ actor MockKnowledgeService: KnowledgeServiceProtocol {
 
         let savedEntry = try await mockCloudKit.save(entry)
         updateCache(with: savedEntry)
+
+        // Note: MockKnowledgeService doesn't implement AI tagging
+        // This is only for testing purposes
 
         return savedEntry
     }

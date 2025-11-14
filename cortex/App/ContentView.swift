@@ -14,9 +14,11 @@ struct ContentView: View {
 
     @Environment(\.modelContext) private var modelContext
     @State private var selectedTab: Tab = .dashboard
-    @State private var showQuickSearch = false
+    @State private var showCommandPalette = false
     @State private var selectedEntry: KnowledgeEntry?
     @State private var migrationPerformed = false
+    @State private var showAddEntry = false
+    @State private var showAIProcessing = false
 
     // MARK: - Tab Enum
 
@@ -36,28 +38,69 @@ struct ContentView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .overlay {
-            if showQuickSearch {
-                Color.black.opacity(0.3)
-                    .ignoresSafeArea()
-                    .onTapGesture {
-                        showQuickSearch = false
-                    }
-
-                QuickSearchView(isPresented: $showQuickSearch) { entry in
-                    selectedEntry = entry
-                    selectedTab = .knowledge
-                }
+            if showCommandPalette {
+                CommandPaletteView(
+                    isPresented: $showCommandPalette,
+                    onCommandSelected: handleCommandSelection
+                )
             }
         }
         .background(
             Button("") {
-                showQuickSearch.toggle()
+                withAnimation(DesignSystem.Animations.spring) {
+                    showCommandPalette.toggle()
+                }
             }
             .keyboardShortcut("k", modifiers: .command)
             .hidden()
         )
         .task {
             await performMigrationIfNeeded()
+        }
+    }
+
+    // MARK: - Command Palette Actions
+
+    private func handleCommandSelection(_ command: Command) {
+        switch command.type {
+        case .action:
+            handleAction(command.id)
+        case .navigation:
+            handleNavigation(command.id)
+        case .entry(let entry):
+            selectedEntry = entry
+            selectedTab = .knowledge
+        }
+    }
+
+    private func handleAction(_ actionId: String) {
+        switch actionId {
+        case "new-entry":
+            showAddEntry = true
+            selectedTab = .knowledge
+        case "ai-process":
+            showAIProcessing = true
+            selectedTab = .knowledge
+        case "search":
+            selectedTab = .knowledge
+        case "settings":
+            selectedTab = .settings
+        case "dashboard":
+            selectedTab = .dashboard
+        case "export":
+            // TODO: Implement export functionality
+            print("Export action triggered")
+        default:
+            break
+        }
+    }
+
+    private func handleNavigation(_ navigationId: String) {
+        switch navigationId {
+        case "dashboard":
+            selectedTab = .dashboard
+        default:
+            break
         }
     }
 
@@ -113,7 +156,7 @@ struct ContentView: View {
     private var detailView: some View {
         switch selectedTab {
         case .dashboard:
-            DashboardView(
+            ModernDashboardView(
                 onNavigateToKnowledge: {
                     selectedTab = .knowledge
                 },
@@ -122,7 +165,19 @@ struct ContentView: View {
                 }
             )
         case .knowledge:
-            KnowledgeListView()
+            ModernKnowledgeListView()
+                .sheet(isPresented: $showAddEntry) {
+                    AddKnowledgeView(viewModel: KnowledgeListViewModel())
+                }
+                .sheet(isPresented: $showAIProcessing) {
+                    AIProcessingSheet(
+                        aiViewModel: AIProcessingViewModel(),
+                        selectedEntries: [],
+                        onComplete: {
+                            showAIProcessing = false
+                        }
+                    )
+                }
         case .settings:
             SettingsView()
         }

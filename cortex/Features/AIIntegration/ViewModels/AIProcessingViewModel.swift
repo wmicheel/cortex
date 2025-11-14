@@ -63,9 +63,18 @@ final class AIProcessingViewModel {
     // MARK: - Initialization
 
     init(knowledgeService: (any KnowledgeServiceProtocol)? = nil) {
-        // Create a new instance if none provided
-        // In production, this should be injected from the environment
-        self.knowledgeService = knowledgeService ?? MockKnowledgeService()
+        if let service = knowledgeService {
+            self.knowledgeService = service
+        } else {
+            // Try SwiftData, fallback to Mock if it fails
+            do {
+                self.knowledgeService = try SwiftDataKnowledgeService()
+                print("✅ AIProcessingViewModel using SwiftDataKnowledgeService")
+            } catch {
+                print("⚠️ SwiftData unavailable for AIProcessingViewModel, using MockKnowledgeService: \(error)")
+                self.knowledgeService = MockKnowledgeService()
+            }
+        }
     }
 
     // MARK: - Processing

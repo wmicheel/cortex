@@ -12,7 +12,7 @@ import Foundation
 protocol KnowledgeServiceProtocol {
     // MARK: - Create
 
-    func create(title: String, content: String, tags: [String], autoTag: Bool) async throws -> KnowledgeEntry
+    func create(title: String, content: String, tags: [String], autoTag: Bool, useAITagging: Bool) async throws -> KnowledgeEntry
     func suggestTags(title: String, content: String) async -> [String]
 
     // MARK: - Read

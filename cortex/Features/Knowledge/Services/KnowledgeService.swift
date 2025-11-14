@@ -74,12 +74,13 @@ final class KnowledgeService: KnowledgeServiceProtocol {
     ///   - title: Entry title
     ///   - content: Entry content
     ///   - tags: User-provided tags
-    ///   - autoTag: Whether to auto-suggest additional tags
+    ///   - autoTag: Whether to auto-suggest additional tags using NLP
+    ///   - useAITagging: Whether to use AI for advanced tag generation
     /// - Returns: Created knowledge entry
-    func create(title: String, content: String, tags: [String] = [], autoTag: Bool = true) async throws -> KnowledgeEntry {
+    func create(title: String, content: String, tags: [String] = [], autoTag: Bool = true, useAITagging: Bool = false) async throws -> KnowledgeEntry {
         var finalTags = tags
 
-        // Auto-suggest tags if enabled
+        // 1. NLP-based tagging (fast, local)
         if autoTag {
             let suggestedTags = await tagExtractor.suggestTags(title: title, content: content)
             finalTags = Array(Set(tags + suggestedTags)) // Merge and deduplicate
@@ -93,6 +94,30 @@ final class KnowledgeService: KnowledgeServiceProtocol {
 
         let savedEntry = try await cloudKitService.save(entry)
         updateCache(with: savedEntry)
+
+        // 2. AI-based tagging (optional, slower but more accurate)
+        if useAITagging {
+            do {
+                // Process with AI for auto-tagging
+                let aiResult = try await aiCoordinator.processEntry(
+                    savedEntry,
+                    tasks: [.autoTagging],
+                    allEntries: []
+                )
+
+                // Apply AI tags
+                if let aiTags = aiResult.tags, !aiTags.isEmpty {
+                    savedEntry.aiGeneratedTags = aiTags
+                    savedEntry.mergeAITags()
+                    let updated = try await cloudKitService.save(savedEntry)
+                    updateCache(with: updated)
+                    print("✅ AI-generated tags added: \(aiTags.joined(separator: ", "))")
+                }
+            } catch {
+                print("⚠️ AI tagging failed: \(error.localizedDescription)")
+                // Continue anyway - entry is already created with NLP tags
+            }
+        }
 
         return savedEntry
     }

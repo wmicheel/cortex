@@ -25,6 +25,38 @@ final class ClaudeWebService: NSObject, ObservableObject {
     // Continuation for async/await bridge
     private var currentContinuation: CheckedContinuation<String, Error>?
 
+    // Session persistence
+    private let sessionKey = "claude_session_data"
+    private var sessionRestoreAttempted = false
+
+    // DOM selector fallbacks (updated dynamically if Claude changes their UI)
+    private var chatInputSelectors: [String] = [
+        "[contenteditable='true']",
+        "div[contenteditable]",
+        "textarea[placeholder*='Message']",
+        "textarea[placeholder*='message']",
+        ".ProseMirror",
+        "[data-testid='chat-input']",
+        "#prompt-textarea"
+    ]
+
+    private var sendButtonSelectors: [String] = [
+        "button[aria-label*='Send']",
+        "button[aria-label*='send']",
+        "button[type='submit']",
+        "[data-testid='send-button']",
+        "button:has(svg[data-icon='send'])",
+        "button.send-button"
+    ]
+
+    private var responseSelectors: [String] = [
+        "[data-testid*='message']",
+        ".message-content",
+        "[role='article']",
+        ".claude-message",
+        ".assistant-message"
+    ]
+
     // MARK: - Initialization
 
     override init() {
@@ -43,11 +75,48 @@ final class ClaudeWebService: NSObject, ObservableObject {
         // Add message handler for receiving responses from Claude
         contentController.add(self, name: "claudeResponse")
 
+        // Add localStorage bridge for session persistence
+        let localStorageScript = WKUserScript(
+            source: """
+            // Bridge localStorage to native app
+            window.saveSessionData = function() {
+                const data = {
+                    cookies: document.cookie,
+                    localStorage: JSON.stringify(localStorage),
+                    sessionStorage: JSON.stringify(sessionStorage),
+                    url: window.location.href
+                };
+                window.webkit.messageHandlers.sessionData.postMessage(data);
+            };
+
+            // Auto-save session data periodically
+            setInterval(window.saveSessionData, 30000); // Every 30 seconds
+            """,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        )
+        contentController.addUserScript(localStorageScript)
+
+        // Add message handler for session data
+        contentController.add(self, name: "sessionData")
+
         config.userContentController = contentController
-        config.websiteDataStore = .default() // Use persistent cookies
+
+        // Use persistent data store with proper configuration
+        let dataStore = WKWebsiteDataStore.default()
+        config.websiteDataStore = dataStore
+
+        // Enable JavaScript and modern web features
+        config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
 
         webView = WKWebView(frame: .zero, configuration: config)
         webView?.navigationDelegate = self
+        webView?.allowsBackForwardNavigationGestures = false
+
+        // Try to restore session first
+        Task {
+            await restoreSession()
+        }
 
         // Load Claude.ai
         if let url = URL(string: "https://claude.ai") {
@@ -56,7 +125,91 @@ final class ClaudeWebService: NSObject, ObservableObject {
         }
 
         isInitialized = true
-        print("🌐 Claude WebView initialized")
+        print("🌐 Claude WebView initialized with session persistence")
+    }
+
+    // MARK: - Session Persistence
+
+    /// Save session data to UserDefaults
+    private func saveSessionData(_ data: [String: Any]) {
+        if let jsonData = try? JSONSerialization.data(withJSONObject: data),
+           let jsonString = String(data: jsonData, encoding: .utf8) {
+            UserDefaults.standard.set(jsonString, forKey: sessionKey)
+            print("💾 Claude session data saved")
+        }
+    }
+
+    /// Restore session from UserDefaults
+    private func restoreSession() async {
+        guard !sessionRestoreAttempted,
+              let webView = webView,
+              let sessionString = UserDefaults.standard.string(forKey: sessionKey),
+              let sessionData = sessionString.data(using: .utf8),
+              let session = try? JSONSerialization.jsonObject(with: sessionData) as? [String: Any] else {
+            print("⚠️ No Claude session to restore")
+            sessionRestoreAttempted = true
+            return
+        }
+
+        sessionRestoreAttempted = true
+
+        // Restore localStorage and sessionStorage
+        if let localStorageJSON = session["localStorage"] as? String,
+           let sessionStorageJSON = session["sessionStorage"] as? String {
+
+            let restoreScript = """
+            (function() {
+                try {
+                    // Restore localStorage
+                    const localData = \(localStorageJSON);
+                    for (let key in localData) {
+                        localStorage.setItem(key, localData[key]);
+                    }
+
+                    // Restore sessionStorage
+                    const sessionData = \(sessionStorageJSON);
+                    for (let key in sessionData) {
+                        sessionStorage.setItem(key, sessionData[key]);
+                    }
+
+                    console.log('Session restored successfully');
+                    return true;
+                } catch (e) {
+                    console.error('Failed to restore session:', e);
+                    return false;
+                }
+            })();
+            """
+
+            do {
+                let result = try await webView.evaluateJavaScript(restoreScript)
+                if let success = result as? Bool, success {
+                    print("✅ Claude session restored successfully")
+                }
+            } catch {
+                print("⚠️ Failed to restore Claude session: \(error)")
+            }
+        }
+
+        // Restore cookies are handled by WKWebsiteDataStore automatically
+    }
+
+    /// Clear saved session data
+    func clearSession() async {
+        UserDefaults.standard.removeObject(forKey: sessionKey)
+
+        // Clear WebView cookies and data
+        let dataStore = WKWebsiteDataStore.default()
+        let dataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
+
+        await dataStore.removeData(ofTypes: dataTypes, modifiedSince: .distantPast)
+
+        isLoggedIn = false
+        isAvailable = false
+        loginStatus = "Nicht angemeldet"
+        sessionRestoreAttempted = false
+
+        print("🗑️ Claude session cleared")
     }
 
     /// Check if user is logged into Claude.ai
@@ -117,7 +270,7 @@ final class ClaudeWebService: NSObject, ObservableObject {
 
         do {
             let result = try await webView.evaluateJavaScript(script)
-            print("🔍 Claude login check result: \(result)")
+            print("🔍 Claude login check result: \(String(describing: result))")
 
             if let isLoggedIn = result as? Bool {
                 self.isLoggedIn = isLoggedIn
@@ -191,6 +344,30 @@ final class ClaudeWebService: NSObject, ObservableObject {
 
     // MARK: - Web Interaction
 
+    /// Find an element using multiple fallback selectors
+    private func findElementScript(selectors: [String], elementName: String) -> String {
+        let selectorsList = selectors.map { "'\($0)'" }.joined(separator: ", ")
+
+        return """
+        (function() {
+            const selectors = [\(selectorsList)];
+            for (const selector of selectors) {
+                try {
+                    const element = document.querySelector(selector);
+                    if (element) {
+                        console.log('Found \(elementName) using selector:', selector);
+                        return element;
+                    }
+                } catch (e) {
+                    console.warn('Selector failed:', selector, e);
+                }
+            }
+            console.error('\(elementName) not found with any selector');
+            return null;
+        })();
+        """
+    }
+
     private func sendPrompt(_ prompt: String) async throws -> String {
         guard let webView = webView, isLoggedIn else {
             throw CortexError.claudeNotLoggedIn
@@ -201,65 +378,150 @@ final class ClaudeWebService: NSObject, ObservableObject {
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
             .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "'", with: "\\'")
 
-        // JavaScript to send message to Claude
+        // Build selector lists for JavaScript
+        let chatInputSelectorsList = chatInputSelectors.map { "'\($0)'" }.joined(separator: ", ")
+        let sendButtonSelectorsList = sendButtonSelectors.map { "'\($0)'" }.joined(separator: ", ")
+        let responseSelectorsList = responseSelectors.map { "'\($0)'" }.joined(separator: ", ")
+
+        // JavaScript to send message to Claude with robust selectors and MutationObserver
         let script = """
         (async function() {
-            // Find the chat input
-            const chatInput = document.querySelector('[contenteditable="true"]');
-            if (!chatInput) {
-                throw new Error('Chat input not found');
+            // Helper: Find element with fallback selectors
+            function findElement(selectors, name) {
+                for (const selector of selectors) {
+                    try {
+                        const element = document.querySelector(selector);
+                        if (element) {
+                            console.log('Found', name, 'using:', selector);
+                            return element;
+                        }
+                    } catch (e) {
+                        console.warn('Selector failed:', selector, e);
+                    }
+                }
+                throw new Error(name + ' not found with any selector');
             }
+
+            // Find chat input with fallbacks
+            const chatInputSelectors = [\(chatInputSelectorsList)];
+            const chatInput = findElement(chatInputSelectors, 'chat input');
+
+            // Count existing messages before sending
+            const beforeMessageCount = document.querySelectorAll('[data-testid*="message"], .message-content, [role="article"]').length;
 
             // Set the prompt
-            chatInput.textContent = "\(escapedPrompt)";
+            chatInput.focus();
 
-            // Trigger input event
-            const inputEvent = new Event('input', { bubbles: true });
-            chatInput.dispatchEvent(inputEvent);
+            // For contenteditable divs
+            if (chatInput.contentEditable === 'true') {
+                chatInput.textContent = "\(escapedPrompt)";
 
-            // Find and click send button
-            const sendButton = document.querySelector('button[aria-label*="Send"]') ||
-                             document.querySelector('button:has(svg)');
-
-            if (!sendButton) {
-                throw new Error('Send button not found');
+                // Trigger input events
+                const events = ['input', 'change', 'keyup'];
+                events.forEach(eventType => {
+                    chatInput.dispatchEvent(new Event(eventType, { bubbles: true }));
+                });
+            } else {
+                // For textarea
+                chatInput.value = "\(escapedPrompt)";
+                chatInput.dispatchEvent(new Event('input', { bubbles: true }));
             }
 
+            // Small delay to ensure input is processed
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            // Find and click send button with fallbacks
+            const sendButtonSelectors = [\(sendButtonSelectorsList)];
+            const sendButton = findElement(sendButtonSelectors, 'send button');
+
+            // Setup MutationObserver to detect response
+            const responsePromise = new Promise((resolve, reject) => {
+                let timeout;
+                const maxWaitTime = 60000; // 60 seconds max
+
+                const observer = new MutationObserver((mutations) => {
+                    // Check for new messages
+                    const responseSelectors = [\(responseSelectorsList)];
+                    let latestMessage = null;
+
+                    for (const selector of responseSelectors) {
+                        try {
+                            const messages = document.querySelectorAll(selector);
+                            if (messages.length > beforeMessageCount) {
+                                // New message appeared
+                                latestMessage = messages[messages.length - 1];
+                                break;
+                            }
+                        } catch (e) {
+                            continue;
+                        }
+                    }
+
+                    if (latestMessage) {
+                        clearTimeout(timeout);
+                        observer.disconnect();
+
+                        // Extract text content
+                        const text = latestMessage.textContent || latestMessage.innerText || '';
+
+                        if (text && text.trim().length > 0) {
+                            resolve(text.trim());
+                        } else {
+                            reject(new Error('Response is empty'));
+                        }
+                    }
+                });
+
+                // Observe the entire document for changes
+                observer.observe(document.body, {
+                    childList: true,
+                    subtree: true,
+                    characterData: true
+                });
+
+                // Timeout fallback
+                timeout = setTimeout(() => {
+                    observer.disconnect();
+                    reject(new Error('Response timeout after ' + (maxWaitTime / 1000) + ' seconds'));
+                }, maxWaitTime);
+            });
+
+            // Click send button
             sendButton.click();
+            console.log('Send button clicked, waiting for response...');
 
-            // Wait for response (this is simplified - in production, use MutationObserver)
-            await new Promise(resolve => setTimeout(resolve, 2000));
-
-            // Get the last response
-            const responses = document.querySelectorAll('[data-testid*="message"]');
-            const lastResponse = responses[responses.length - 1];
-
-            if (lastResponse) {
-                return lastResponse.textContent;
-            }
-
-            return '';
+            // Wait for response
+            const response = await responsePromise;
+            return response;
         })();
         """
 
-        return try await withCheckedThrowingContinuation { continuation in
-            self.currentContinuation = continuation
+        // Execute with retry logic
+        var lastError: Error?
+        for attempt in 1...3 {
+            do {
+                let result = try await webView.evaluateJavaScript(script)
 
-            Task { @MainActor in
-                do {
-                    let result = try await webView.evaluateJavaScript(script)
-                    if let response = result as? String, !response.isEmpty {
-                        continuation.resume(returning: response)
-                    } else {
-                        continuation.resume(throwing: CortexError.claudeRequestFailed(message: "Empty response"))
-                    }
-                } catch {
-                    continuation.resume(throwing: CortexError.claudeRequestFailed(message: error.localizedDescription))
+                if let response = result as? String, !response.isEmpty {
+                    print("✅ Claude response received (attempt \(attempt)): \(response.prefix(100))...")
+                    return response
+                } else {
+                    throw CortexError.claudeRequestFailed(message: "Empty response")
                 }
-                self.currentContinuation = nil
+            } catch {
+                lastError = error
+                print("⚠️ Claude request attempt \(attempt) failed: \(error.localizedDescription)")
+
+                if attempt < 3 {
+                    // Wait before retry
+                    try await Task.sleep(for: .seconds(2))
+                }
             }
         }
+
+        throw lastError ?? CortexError.claudeRequestFailed(message: "All retry attempts failed")
     }
 
     // MARK: - Prompt Building
@@ -311,7 +573,7 @@ extension ClaudeWebService: WKNavigationDelegate {
         Task { @MainActor in
             print("🌐 Claude.ai page loaded")
             // Check login status after page load
-            try? await checkLoginStatus()
+            _ = try? await checkLoginStatus()
         }
     }
 
@@ -329,9 +591,21 @@ extension ClaudeWebService: WKNavigationDelegate {
 extension ClaudeWebService: WKScriptMessageHandler {
     nonisolated func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         Task { @MainActor in
-            if message.name == "claudeResponse", let response = message.body as? String {
-                currentContinuation?.resume(returning: response)
-                currentContinuation = nil
+            switch message.name {
+            case "claudeResponse":
+                if let response = message.body as? String {
+                    currentContinuation?.resume(returning: response)
+                    currentContinuation = nil
+                }
+
+            case "sessionData":
+                // Save session data for persistence
+                if let sessionData = message.body as? [String: Any] {
+                    saveSessionData(sessionData)
+                }
+
+            default:
+                print("⚠️ Unknown message handler: \(message.name)")
             }
         }
     }

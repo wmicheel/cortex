@@ -37,6 +37,9 @@ enum CortexError: LocalizedError {
     case claudeRequestFailed(message: String)
     case aiProcessingFailed(task: String, reason: String)
 
+    // MARK: - System Integration Errors
+    case appleScriptError(message: String)
+
     // MARK: - General Errors
     case unknown(underlying: Error)
 
@@ -83,6 +86,8 @@ enum CortexError: LocalizedError {
             return "Claude request failed: \(message)"
         case .aiProcessingFailed(let task, let reason):
             return "AI processing failed for \(task): \(reason)"
+        case .appleScriptError(let message):
+            return "AppleScript error: \(message)"
         case .unknown(let error):
             return "An unknown error occurred: \(error.localizedDescription)"
         }
@@ -108,6 +113,8 @@ enum CortexError: LocalizedError {
             return "Please check your internet connection and try again."
         case .aiProcessingFailed:
             return "Try processing again or use a different AI service."
+        case .appleScriptError:
+            return "Please ensure the Notes app is accessible and try again."
         default:
             return "Please try again or contact support if the problem persists."
         }

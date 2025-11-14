@@ -181,7 +181,8 @@ final class KnowledgeListViewModel {
                 title: title,
                 content: content,
                 tags: tags,
-                autoTag: autoTag
+                autoTag: autoTag,
+                useAITagging: false  // Can be enabled via Settings
             )
 
             // Set block-based flag

@@ -46,6 +46,17 @@ final class KnowledgeEntry {
     /// Linked Apple Calendar event identifier
     var linkedCalendarEventID: String?
 
+    /// Linked Apple Note identifier
+    var linkedNoteID: String?
+
+    // MARK: - Semantic Search
+
+    /// OpenAI embedding vector for semantic search (1536 dimensions for text-embedding-3-small)
+    var embedding: [Double]?
+
+    /// Timestamp when embedding was last generated
+    var embeddingGeneratedAt: Date?
+
     // MARK: - AI Processing
 
     /// AI-generated tags
@@ -74,6 +85,9 @@ final class KnowledgeEntry {
         modifiedAt: Date = Date(),
         linkedReminderID: String? = nil,
         linkedCalendarEventID: String? = nil,
+        linkedNoteID: String? = nil,
+        embedding: [Double]? = nil,
+        embeddingGeneratedAt: Date? = nil,
         aiGeneratedTags: [String]? = nil,
         aiSummary: String? = nil,
         aiRelatedEntryIDs: [String]? = nil,
@@ -89,6 +103,9 @@ final class KnowledgeEntry {
         self.modifiedAt = modifiedAt
         self.linkedReminderID = linkedReminderID
         self.linkedCalendarEventID = linkedCalendarEventID
+        self.linkedNoteID = linkedNoteID
+        self.embedding = embedding
+        self.embeddingGeneratedAt = embeddingGeneratedAt
         self.aiGeneratedTags = aiGeneratedTags
         self.aiSummary = aiSummary
         self.aiRelatedEntryIDs = aiRelatedEntryIDs
@@ -113,6 +130,9 @@ extension KnowledgeEntry: CloudKitRecord {
         record["modifiedAt"] = modifiedAt as CKRecordValue
         record["linkedReminderID"] = linkedReminderID as CKRecordValue?
         record["linkedCalendarEventID"] = linkedCalendarEventID as CKRecordValue?
+        record["linkedNoteID"] = linkedNoteID as CKRecordValue?
+        record["embedding"] = embedding as CKRecordValue?
+        record["embeddingGeneratedAt"] = embeddingGeneratedAt as CKRecordValue?
         record["aiGeneratedTags"] = aiGeneratedTags as CKRecordValue?
         record["aiSummary"] = aiSummary as CKRecordValue?
         record["aiRelatedEntryIDs"] = aiRelatedEntryIDs as CKRecordValue?
@@ -141,6 +161,9 @@ extension KnowledgeEntry: CloudKitRecord {
             modifiedAt: modifiedAt,
             linkedReminderID: record["linkedReminderID"] as? String,
             linkedCalendarEventID: record["linkedCalendarEventID"] as? String,
+            linkedNoteID: record["linkedNoteID"] as? String,
+            embedding: record["embedding"] as? [Double],
+            embeddingGeneratedAt: record["embeddingGeneratedAt"] as? Date,
             aiGeneratedTags: record["aiGeneratedTags"] as? [String],
             aiSummary: record["aiSummary"] as? String,
             aiRelatedEntryIDs: record["aiRelatedEntryIDs"] as? [String],
@@ -217,6 +240,23 @@ extension KnowledgeEntry {
         linkedCalendarEventID != nil
     }
 
+    /// Link a note to this entry
+    func linkNote(_ noteID: String) {
+        self.linkedNoteID = noteID
+        touch()
+    }
+
+    /// Unlink the note from this entry
+    func unlinkNote() {
+        self.linkedNoteID = nil
+        touch()
+    }
+
+    /// Check if entry has a linked note
+    var hasLinkedNote: Bool {
+        linkedNoteID != nil
+    }
+
     // MARK: - AI Processing Helpers
 
     /// Check if entry has been processed by AI
@@ -273,6 +313,32 @@ extension KnowledgeEntry {
         let uniqueTags = Set(tags + aiTags)
         tags = Array(uniqueTags).sorted()
         touch()
+    }
+
+    // MARK: - Semantic Search Helpers
+
+    /// Check if entry has an embedding generated
+    var hasEmbedding: Bool {
+        embedding != nil && !(embedding?.isEmpty ?? true)
+    }
+
+    /// Check if embedding needs regeneration (content changed after embedding was generated)
+    func needsEmbeddingUpdate() -> Bool {
+        guard let embeddingDate = embeddingGeneratedAt else { return true }
+        return modifiedAt > embeddingDate
+    }
+
+    /// Update embedding vector
+    func updateEmbedding(_ vector: [Double]) {
+        self.embedding = vector
+        self.embeddingGeneratedAt = Date()
+        // Don't call touch() here - embedding update shouldn't change modifiedAt
+    }
+
+    /// Clear embedding data
+    func clearEmbedding() {
+        self.embedding = nil
+        self.embeddingGeneratedAt = nil
     }
 
     // MARK: - Block Management Helpers
