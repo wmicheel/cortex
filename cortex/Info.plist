@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Cortex verwendet Spracherkennung, um Ihre Notizen per Voice-Input zu erfassen und automatisch zu transkribieren.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Cortex benötigt Mikrofon-Zugriff für die Spracheingabe, damit Sie Gedanken und Ideen schnell festhalten können.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>Cortex kann Erinnerungen aus Ihren Notizen erstellen und mit Ihren Knowledge Entries verknüpfen.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Cortex kann Kalender-Events aus Ihren Knowledge Entries erstellen und Meeting-Notizen importieren.</string>
+</dict>
+</plist>

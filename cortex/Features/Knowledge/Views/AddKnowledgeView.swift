@@ -23,6 +23,7 @@ struct AddKnowledgeView: View {
     @State private var isAutoTagEnabled = true
     @State private var suggestedTags: [String] = []
     @State private var suggestionTask: Task<Void, Never>?
+    @State private var showVoiceInput = false
 
     // MARK: - Body
 
@@ -51,6 +52,16 @@ struct AddKnowledgeView: View {
                     HStack {
                         Text("Content")
                         Spacer()
+
+                        // Voice Input Button
+                        Button(action: {
+                            showVoiceInput = true
+                        }) {
+                            Label("Voice", systemImage: "mic.fill")
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(.accentColor)
+
                         Button(showMarkdownPreview ? "Edit" : "Preview") {
                             showMarkdownPreview.toggle()
                         }
@@ -177,6 +188,16 @@ struct AddKnowledgeView: View {
             }
             .onChange(of: content) { _, _ in
                 updateTagSuggestions()
+            }
+            .sheet(isPresented: $showVoiceInput) {
+                VoiceInputView { transcript in
+                    // Append transcript to content
+                    if !content.isEmpty && !content.hasSuffix("\n") {
+                        content += "\n\n"
+                    }
+                    content += transcript
+                    showVoiceInput = false
+                }
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
