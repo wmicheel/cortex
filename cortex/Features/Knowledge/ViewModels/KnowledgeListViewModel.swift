@@ -56,6 +56,9 @@ final class KnowledgeListViewModel {
     /// Reminders service
     private let remindersService = RemindersService()
 
+    /// Calendar service
+    private let calendarService = CalendarService()
+
     /// Search task for cancellation
     private var searchTask: Task<Void, Never>?
 
@@ -381,6 +384,89 @@ final class KnowledgeListViewModel {
             if (error as? RemindersError) == .notFound {
                 var updatedEntry = entry
                 updatedEntry.unlinkReminder()
+                try? await knowledgeService.update(updatedEntry)
+
+                if let index = entries.firstIndex(where: { $0.id == entry.id }) {
+                    entries[index] = updatedEntry
+                }
+            } else {
+                self.error = handleError(error)
+            }
+        }
+    }
+
+    // MARK: - Calendar Event Integration
+
+    /// Create a calendar event from a knowledge entry
+    func createCalendarEvent(for entry: KnowledgeEntry, startDate: Date, endDate: Date, isAllDay: Bool) async {
+        do {
+            // Request access if needed
+            let hasAccess = await calendarService.hasAccess
+            if !hasAccess {
+                let granted = await calendarService.requestAccess()
+                guard granted else {
+                    error = .unknown(underlying: CalendarError.notAuthorized)
+                    return
+                }
+            }
+
+            // Create calendar event
+            let eventID = try await calendarService.createEvent(
+                title: entry.title,
+                notes: entry.content,
+                startDate: startDate,
+                endDate: endDate,
+                isAllDay: isAllDay
+            )
+
+            // Update entry with linked event ID
+            var updatedEntry = entry
+            updatedEntry.linkCalendarEvent(eventID)
+            try await knowledgeService.update(updatedEntry)
+
+            // Update in local list
+            if let index = entries.firstIndex(where: { $0.id == entry.id }) {
+                entries[index] = updatedEntry
+            }
+        } catch {
+            self.error = handleError(error)
+        }
+    }
+
+    /// Open a calendar event in the Calendar app
+    func openCalendarEvent(id: String) async {
+        guard let url = await calendarService.getEventURL(id: id) else {
+            error = .unknown(underlying: CalendarError.notFound)
+            return
+        }
+
+        await MainActor.run {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    /// Unlink a calendar event from an entry
+    func unlinkCalendarEvent(from entry: KnowledgeEntry) async {
+        guard let eventID = entry.linkedCalendarEventID else { return }
+
+        do {
+            // Delete the event from Calendar app
+            try await calendarService.deleteEvent(id: eventID)
+
+            // Update entry to unlink
+            var updatedEntry = entry
+            updatedEntry.unlinkCalendarEvent()
+            try await knowledgeService.update(updatedEntry)
+
+            // Update in local list
+            if let index = entries.firstIndex(where: { $0.id == entry.id }) {
+                entries[index] = updatedEntry
+            }
+        } catch {
+            // If event doesn't exist anymore, just unlink it
+            if (error as? CalendarError) == .notFound {
+                var updatedEntry = entry
+                updatedEntry.unlinkCalendarEvent()
                 try? await knowledgeService.update(updatedEntry)
 
                 if let index = entries.firstIndex(where: { $0.id == entry.id }) {

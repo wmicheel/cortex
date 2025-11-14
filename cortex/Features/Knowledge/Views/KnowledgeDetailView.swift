@@ -22,6 +22,11 @@ struct KnowledgeDetailView: View {
     @State private var reminderDueDate = Date()
     @State private var reminderPriority = 0
     @State private var isCreatingReminder = false
+    @State private var showCalendarSheet = false
+    @State private var eventStartDate = Date()
+    @State private var eventEndDate = Date().addingTimeInterval(3600) // 1 hour later
+    @State private var eventIsAllDay = false
+    @State private var isCreatingEvent = false
 
     // MARK: - Initialization
 
@@ -73,6 +78,16 @@ struct KnowledgeDetailView: View {
                 priority: $reminderPriority,
                 isCreating: $isCreatingReminder,
                 onSave: createReminder
+            )
+        }
+        .sheet(isPresented: $showCalendarSheet) {
+            CreateCalendarEventSheet(
+                entry: entry,
+                startDate: $eventStartDate,
+                endDate: $eventEndDate,
+                isAllDay: $eventIsAllDay,
+                isCreating: $isCreatingEvent,
+                onSave: createCalendarEvent
             )
         }
     }
@@ -183,6 +198,38 @@ struct KnowledgeDetailView: View {
                 } else {
                     Button(action: {
                         showReminderSheet = true
+                    }) {
+                        Label("Create", systemImage: "plus.circle.fill")
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+            .padding(.vertical, 4)
+
+            // Calendar Event Integration
+            HStack {
+                Label("Calendar Event", systemImage: "calendar")
+                    .font(.body)
+
+                Spacer()
+
+                if entry.hasLinkedCalendarEvent {
+                    Button(action: openCalendarEvent) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            Text("Open")
+                        }
+                    }
+                    .buttonStyle(.borderless)
+
+                    Button(role: .destructive, action: unlinkCalendarEvent) {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.borderless)
+                } else {
+                    Button(action: {
+                        showCalendarSheet = true
                     }) {
                         Label("Create", systemImage: "plus.circle.fill")
                     }
@@ -333,6 +380,37 @@ struct KnowledgeDetailView: View {
             await viewModel.unlinkReminder(from: entry)
         }
     }
+
+    // MARK: - Calendar Event Actions
+
+    private func createCalendarEvent() {
+        isCreatingEvent = true
+
+        Task {
+            await viewModel.createCalendarEvent(
+                for: entry,
+                startDate: eventStartDate,
+                endDate: eventEndDate,
+                isAllDay: eventIsAllDay
+            )
+            isCreatingEvent = false
+            showCalendarSheet = false
+        }
+    }
+
+    private func openCalendarEvent() {
+        guard let eventID = entry.linkedCalendarEventID else { return }
+
+        Task {
+            await viewModel.openCalendarEvent(id: eventID)
+        }
+    }
+
+    private func unlinkCalendarEvent() {
+        Task {
+            await viewModel.unlinkCalendarEvent(from: entry)
+        }
+    }
 }
 
 // MARK: - Create Reminder Sheet
@@ -403,6 +481,75 @@ struct CreateReminderSheet: View {
             .loadingOverlay(isLoading: isCreating, message: "Creating reminder...")
         }
         .frame(width: 500, height: 450)
+    }
+}
+
+// MARK: - Create Calendar Event Sheet
+
+struct CreateCalendarEventSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let entry: KnowledgeEntry
+    @Binding var startDate: Date
+    @Binding var endDate: Date
+    @Binding var isAllDay: Bool
+    @Binding var isCreating: Bool
+    let onSave: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Event Details") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Title")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(entry.title)
+                            .font(.body)
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Notes")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(entry.content)
+                            .font(.body)
+                            .lineLimit(3)
+                    }
+                }
+
+                Section("When") {
+                    Toggle("All Day Event", isOn: $isAllDay)
+
+                    if isAllDay {
+                        DatePicker("Date", selection: $startDate, displayedComponents: [.date])
+                    } else {
+                        DatePicker("Starts", selection: $startDate, displayedComponents: [.date, .hourAndMinute])
+                        DatePicker("Ends", selection: $endDate, displayedComponents: [.date, .hourAndMinute])
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .navigationTitle("Create Calendar Event")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .disabled(isCreating)
+                }
+
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create") {
+                        onSave()
+                    }
+                    .disabled(isCreating || (!isAllDay && endDate <= startDate))
+                }
+            }
+            .disabled(isCreating)
+            .loadingOverlay(isLoading: isCreating, message: "Creating calendar event...")
+        }
+        .frame(width: 500, height: 400)
     }
 }
 
