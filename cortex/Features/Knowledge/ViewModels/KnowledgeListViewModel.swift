@@ -50,24 +50,32 @@ final class KnowledgeListViewModel {
     // MARK: - Properties
 
     /// Knowledge service
-    private let knowledgeService: KnowledgeService
+    private let knowledgeService: any KnowledgeServiceProtocol
 
     /// Search task for cancellation
     private var searchTask: Task<Void, Never>?
 
     // MARK: - Initialization
 
-    init(knowledgeService: KnowledgeService = KnowledgeService()) {
-        self.knowledgeService = knowledgeService
+    init(knowledgeService: (any KnowledgeServiceProtocol)? = nil) {
+        // Use Mock service by default for development
+        // Switch to real KnowledgeService when CloudKit is configured
+        self.knowledgeService = knowledgeService ?? MockKnowledgeService()
     }
 
     // MARK: - Lifecycle
 
     /// Load initial data
     func onAppear() async {
-        await loadEntries()
-        await loadTags()
-        await loadStatistics()
+        // Gracefully handle CloudKit not being available
+        do {
+            await loadEntries()
+            await loadTags()
+            await loadStatistics()
+        } catch {
+            // Already handled in individual load methods
+            print("Error during initial load: \(error)")
+        }
     }
 
     /// Refresh all data
@@ -92,6 +100,8 @@ final class KnowledgeListViewModel {
             }
         } catch {
             errorMessage = handleError(error)
+            // Don't crash - just show empty state with error
+            entries = []
         }
 
         isLoading = false

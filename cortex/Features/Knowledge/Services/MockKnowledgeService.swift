@@ -1,62 +1,55 @@
 //
-//  KnowledgeService.swift
+//  MockKnowledgeService.swift
 //  Cortex
 //
 //  Created by Claude Code
 //
 
-import CloudKit
 import Foundation
 
-/// Domain-specific service for knowledge management operations
-actor KnowledgeService: KnowledgeServiceProtocol {
+/// Mock knowledge service using in-memory storage
+/// Use this for development without CloudKit/iCloud
+actor MockKnowledgeService: KnowledgeServiceProtocol {
     // MARK: - Properties
 
-    /// CloudKit service for data persistence
-    private let cloudKitService: CloudKitService
-
-    /// In-memory cache for faster access
+    private let mockCloudKit: MockCloudKitService
     private var cache: [String: KnowledgeEntry] = [:]
-
-    /// Cache invalidation timestamp
     private var cacheTimestamp: Date?
-
-    /// Cache validity duration (5 minutes)
     private let cacheValidityDuration: TimeInterval = 300
 
     // MARK: - Initialization
 
-    init(cloudKitService: CloudKitService = CloudKitService()) {
-        self.cloudKitService = cloudKitService
+    init(mockCloudKit: MockCloudKitService = MockCloudKitService()) {
+        self.mockCloudKit = mockCloudKit
+
+        // Seed initial data
+        Task {
+            await mockCloudKit.seedMockData()
+        }
     }
 
     // MARK: - Cache Management
 
-    /// Check if cache is valid
     private var isCacheValid: Bool {
         guard let timestamp = cacheTimestamp else { return false }
         return Date().timeIntervalSince(timestamp) < cacheValidityDuration
     }
 
-    /// Invalidate cache
     private func invalidateCache() {
         cache.removeAll()
         cacheTimestamp = nil
     }
 
-    /// Update cache with entry
     private func updateCache(with entry: KnowledgeEntry) {
         cache[entry.id] = entry
     }
 
-    /// Remove entry from cache
     private func removeFromCache(id: String) {
         cache.removeValue(forKey: id)
     }
 
     // MARK: - Create
 
-    /// Create a new knowledge entry
     func create(title: String, content: String, tags: [String] = []) async throws -> KnowledgeEntry {
         let entry = KnowledgeEntry(
             title: title,
@@ -64,7 +57,7 @@ actor KnowledgeService: KnowledgeServiceProtocol {
             tags: tags
         )
 
-        let savedEntry = try await cloudKitService.save(entry)
+        let savedEntry = try await mockCloudKit.save(entry)
         updateCache(with: savedEntry)
 
         return savedEntry
@@ -72,35 +65,28 @@ actor KnowledgeService: KnowledgeServiceProtocol {
 
     // MARK: - Read
 
-    /// Fetch a knowledge entry by ID
     func fetch(id: String) async throws -> KnowledgeEntry {
-        // Check cache first
         if isCacheValid, let cachedEntry = cache[id] {
             return cachedEntry
         }
 
-        // Fetch from CloudKit
-        let entry = try await cloudKitService.fetch(id: id, type: KnowledgeEntry.self)
+        let entry = try await mockCloudKit.fetch(id: id, type: KnowledgeEntry.self)
         updateCache(with: entry)
 
         return entry
     }
 
-    /// Fetch all knowledge entries
     func fetchAll(forceRefresh: Bool = false) async throws -> [KnowledgeEntry] {
-        // Use cache if valid and not forcing refresh
         if !forceRefresh && isCacheValid && !cache.isEmpty {
             return Array(cache.values).sorted { $0.modifiedAt > $1.modifiedAt }
         }
 
-        // Fetch from CloudKit with sort by modification date
         let sortDescriptor = NSSortDescriptor(key: "modifiedAt", ascending: false)
-        let entries = try await cloudKitService.query(
+        let entries = try await mockCloudKit.query(
             type: KnowledgeEntry.self,
             sortDescriptors: [sortDescriptor]
         )
 
-        // Update cache
         invalidateCache()
         for entry in entries {
             updateCache(with: entry)
@@ -110,10 +96,7 @@ actor KnowledgeService: KnowledgeServiceProtocol {
         return entries
     }
 
-    /// Search knowledge entries
     func search(query: String) async throws -> [KnowledgeEntry] {
-        // For now, fetch all and filter locally
-        // In production, this should use CloudKit queries for better performance
         let allEntries = try await fetchAll()
 
         guard !query.isEmpty else {
@@ -123,13 +106,11 @@ actor KnowledgeService: KnowledgeServiceProtocol {
         return allEntries.filter { $0.matches(searchText: query) }
     }
 
-    /// Fetch entries with specific tag
     func fetchEntries(withTag tag: String) async throws -> [KnowledgeEntry] {
         let allEntries = try await fetchAll()
         return allEntries.filter { $0.hasTag(tag) }
     }
 
-    /// Get all unique tags
     func fetchAllTags() async throws -> [String] {
         let entries = try await fetchAll()
         let allTags = entries.flatMap { $0.tags }
@@ -138,18 +119,16 @@ actor KnowledgeService: KnowledgeServiceProtocol {
 
     // MARK: - Update
 
-    /// Update a knowledge entry
     func update(_ entry: KnowledgeEntry) async throws -> KnowledgeEntry {
         var updatedEntry = entry
         updatedEntry.touch()
 
-        let savedEntry = try await cloudKitService.update(updatedEntry)
+        let savedEntry = try await mockCloudKit.update(updatedEntry)
         updateCache(with: savedEntry)
 
         return savedEntry
     }
 
-    /// Update entry content
     func updateContent(id: String, title: String, content: String) async throws -> KnowledgeEntry {
         var entry = try await fetch(id: id)
         entry.title = title
@@ -158,7 +137,6 @@ actor KnowledgeService: KnowledgeServiceProtocol {
         return try await update(entry)
     }
 
-    /// Add tag to entry
     func addTag(_ tag: String, to entryId: String) async throws -> KnowledgeEntry {
         var entry = try await fetch(id: entryId)
         entry.addTag(tag)
@@ -166,7 +144,6 @@ actor KnowledgeService: KnowledgeServiceProtocol {
         return try await update(entry)
     }
 
-    /// Remove tag from entry
     func removeTag(_ tag: String, from entryId: String) async throws -> KnowledgeEntry {
         var entry = try await fetch(id: entryId)
         entry.removeTag(tag)
@@ -176,20 +153,17 @@ actor KnowledgeService: KnowledgeServiceProtocol {
 
     // MARK: - Delete
 
-    /// Delete a knowledge entry
     func delete(id: String) async throws {
-        try await cloudKitService.delete(id: id, type: KnowledgeEntry.self)
+        try await mockCloudKit.delete(id: id, type: KnowledgeEntry.self)
         removeFromCache(id: id)
     }
 
-    /// Delete a knowledge entry
     func delete(_ entry: KnowledgeEntry) async throws {
         try await delete(id: entry.id)
     }
 
-    /// Delete multiple entries
     func deleteAll(_ entries: [KnowledgeEntry]) async throws {
-        try await cloudKitService.deleteAll(entries)
+        try await mockCloudKit.deleteAll(entries)
         for entry in entries {
             removeFromCache(id: entry.id)
         }
@@ -197,7 +171,6 @@ actor KnowledgeService: KnowledgeServiceProtocol {
 
     // MARK: - Statistics
 
-    /// Get entry statistics
     func getStatistics() async throws -> KnowledgeStatistics {
         let entries = try await fetchAll()
 
@@ -209,7 +182,6 @@ actor KnowledgeService: KnowledgeServiceProtocol {
         )
     }
 
-    /// Calculate most used tags
     private func calculateMostUsedTags(from entries: [KnowledgeEntry], limit: Int = 10) -> [(tag: String, count: Int)] {
         var tagCounts: [String: Int] = [:]
 
@@ -224,14 +196,4 @@ actor KnowledgeService: KnowledgeServiceProtocol {
             .prefix(limit)
             .map { (tag: $0.key, count: $0.value) }
     }
-}
-
-// MARK: - Supporting Types
-
-/// Knowledge base statistics
-struct KnowledgeStatistics: Sendable {
-    let totalEntries: Int
-    let totalTags: Int
-    let recentEntries: [KnowledgeEntry]
-    let mostUsedTags: [(tag: String, count: Int)]
 }
